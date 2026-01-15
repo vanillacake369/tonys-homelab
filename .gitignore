@@ -1,0 +1,22 @@
+# Build results
+result
+result-*
+
+# Hardware configuration (machine-specific)
+hosts/*/hardware-configuration.nix
+
+# Secrets and keys
+*.key
+*.pem
+secrets/ssh-public-key.txt
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

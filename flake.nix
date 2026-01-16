@@ -80,9 +80,9 @@
         };
         specialArgs = {
           inherit inputs;
-          # SSH public key: Read from file for Colmena deployments
-          # Passwords are managed by SOPS, but public keys can be in plaintext
-          sshPublicKey = builtins.readFile ./secrets/ssh-public-key.txt;
+          # SSH public key: Pass via SSH_PUB_KEY environment variable
+          # Keeps SSH keys out of git while maintaining declarative config
+          sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
         };
       };
 

@@ -32,31 +32,31 @@ install target_ip:
 
 # Deploy to all nodes (uses ~/.ssh/config for authentication)
 deploy:
-    nix run .#colmena -- apply --impure
+    {{ nix_cmd }} run .#colmena -- apply --impure
 
 # Deploy to specific node
 deploy-node node:
-    nix run .#colmena -- apply --on {{ node }} --impure
+    {{ nix_cmd }} run .#colmena -- apply --on {{ node }} --impure
 
 # Deploy with verbose output
 deploy-verbose:
-    nix run .#colmena -- apply --verbose --impure
+    {{ nix_cmd }} run .#colmena -- apply --verbose --impure
 
 # Build without deploying (dry-run)
 build:
-    nix run .#colmena -- build --impure
+    {{ nix_cmd }} run .#colmena -- build --impure
 
 # Show deployment info
 info:
-    nix run .#colmena -- introspect
+    {{ nix_cmd }} run .#colmena -- introspect
 
 # Deploy only to physical servers (tag-based)
 deploy-physical:
-    nix run .#colmena -- apply --on @physical --impure
+    {{ nix_cmd }} run .#colmena -- apply --on @physical --impure
 
 # Future: Deploy only to VMs
 deploy-vms:
-    nix run .#colmena -- apply --on @vm --impure
+    {{ nix_cmd }} run .#colmena -- apply --on @vm --impure
 
 # =============================================================================
 # Legacy System Updates (fallback method)

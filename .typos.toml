@@ -1,0 +1,16 @@
+[default]
+extend-ignore-re = [
+  # Nix store paths
+  "/nix/store/[a-z0-9]{32}-.*",
+  # Hash values
+  "sha256-[A-Za-z0-9+/=]{44}",
+]
+
+[files]
+extend-exclude = [
+  "*.lock",
+  "flake.lock",
+]
+
+[default.extend-words]
+# Add custom words that should be ignored

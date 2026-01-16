@@ -20,13 +20,14 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
-      - name: Setup Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
+        # INFO : Unnecessary since private homelab
+        # - name: Setup Magic Nix Cache
+        #   uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Flake check
-        run: nix flake check --impure
+        run: nix flake check --impure --no-build
       - name: Build homelab configuration
         run: nix build .#nixosConfigurations.homelab.config.system.build.toplevel --impure
-        # TODO : 해당 키 값은 추후 VAULT 로 마이그레이션 되어야 함
+        # TODO : Should be migrated to hashicorp vault
         # ../../secrets/ssh-public-key.txt 와 겹침
         env:
           SSH_PUB_KEY: ${{ secrets.SSH_PUBLIC_KEY }}

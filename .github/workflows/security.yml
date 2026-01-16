@@ -20,3 +20,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # INFO : Does not required since personal repo
           # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  flake-checker:
+    name: Nix Flake Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check Nix flake inputs
+        uses: DeterminateSystems/flake-checker-action@main
+        with:
+          fail-mode: true

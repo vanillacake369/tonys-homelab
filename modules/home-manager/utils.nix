@@ -14,6 +14,8 @@
   # System utilities
   home.packages = with pkgs; [
     git
+    pciutils
+    ripgrep
     htop
     btop
     zellij
@@ -24,5 +26,10 @@
     tree
     ncdu
     neofetch
+    bat
+    jq
+    moreutils
+    tree
+    expect
   ];
 }

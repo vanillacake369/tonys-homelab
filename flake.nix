@@ -30,97 +30,87 @@
     home-manager,
     disko,
     sops-nix,
-    microvm,
     colmena,
     ...
-  } @ inputs: {
-    # Colmena package from flake input (ensures version compatibility)
-    packages.x86_64-darwin.colmena = colmena.packages.x86_64-darwin.colmena;
-    packages.aarch64-darwin.colmena = colmena.packages.aarch64-darwin.colmena;
-    packages.x86_64-linux.colmena = colmena.packages.x86_64-linux.colmena;
-    packages.aarch64-linux.colmena = colmena.packages.aarch64-linux.colmena;
-
-    nixosConfigurations = {
-      homelab = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = {
-          inherit inputs;
-          sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
-        };
-        modules = [
-          disko.nixosModules.disko
-          ./configuration.nix
-          sops-nix.nixosModules.sops
-
-          # Integrate home-manager as NixOS module
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.backupFileExtension = "backup";
-            home-manager.users.limjihoon = import ./home.nix;
-            home-manager.extraSpecialArgs = {
-              isLinux = true;
-              isDarwin = false;
-              isWsl = false;
-              isNixOs = true;
-            };
-          }
-        ];
+  } @ inputs: let
+    # Homelab configuration - centralized magic values
+    homelabConfig = {
+      username = "limjihoon";
+      hostname = "homelab";
+      deployment = {
+        targetHost = "homelab";
+        targetUser = "limjihoon";
       };
     };
 
-    # Colmena hive configuration
-    # See: https://colmena.cli.rs/unstable/tutorial/flakes.html
+    specialArgs = {
+      inherit inputs homelabConfig;
+      sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
+    };
+    # 모든 호스트(물리 서버 및 VM)가 공유하는 공통 NixOS 모듈
+    sharedModules = [
+      disko.nixosModules.disko
+      sops-nix.nixosModules.sops
+      home-manager.nixosModules.home-manager
+      ./configuration.nix
+      {
+        home-manager = {
+          useGlobalPkgs = true;
+          useUserPackages = true;
+          backupFileExtension = "backup";
+          users.${homelabConfig.username} = import ./home.nix;
+          extraSpecialArgs = {
+            inherit homelabConfig;
+            isLinux = true;
+            isDarwin = false;
+            isWsl = false;
+            isNixOs = true;
+          };
+        };
+      }
+    ];
+    # 홈랩 서버 시스템 아키텍쳐
+    system = "x86_64-linux";
+    # 배포 가능한 클라이언트 시스템 아키텍쳐 목록
+    supportedSystems = [
+      "x86_64-linux"
+      "aarch64-linux"
+      "x86_64-darwin"
+      "aarch64-darwin"
+    ];
+  in {
+    # 작업 환경(Linux/Mac)에 맞는 Colmena 패키지
+    packages = nixpkgs.lib.genAttrs supportedSystems (sys: {
+      inherit (colmena.packages.${sys}) colmena;
+    });
+
+    # 표준 NixOS 설정 (로컬 빌드/테스트용)
+    nixosConfigurations.homelab = nixpkgs.lib.nixosSystem {
+      inherit system specialArgs;
+      modules = sharedModules;
+    };
+
+    # Colmena Hive 설정
     colmenaHive = colmena.lib.makeHive {
       meta = {
-        nixpkgs = import nixpkgs {
-          system = "x86_64-linux";
-          overlays = [];
-        };
-        specialArgs = {
-          inherit inputs;
-          # SSH public key: Pass via SSH_PUB_KEY environment variable
-          # Keeps SSH keys out of git while maintaining declarative config
-          sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
-        };
+        nixpkgs = import nixpkgs {inherit system;};
+        inherit specialArgs;
       };
 
-      # Physical homelab server
+      # 홈랩 서버 노드 정의
       homelab = {
         deployment = {
-          targetHost = "homelab";  # Uses ~/.ssh/config
-          targetUser = "limjihoon";
+          # .ssh/config 의 Host 별칭 사용
+          targetHost = homelabConfig.deployment.targetHost;
+          targetUser = homelabConfig.deployment.targetUser;
+          # 서버 자원을 사용하여 빌드 (로컬 부하 감소)
           buildOnTarget = true;
           tags = ["physical" "homelab"];
         };
-
-        imports = [
-          disko.nixosModules.disko
-          ./configuration.nix
-          sops-nix.nixosModules.sops
-
-          # Integrate home-manager
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.backupFileExtension = "backup";
-            home-manager.users.limjihoon = import ./home.nix;
-            home-manager.extraSpecialArgs = {
-              isLinux = true;
-              isDarwin = false;
-              isWsl = false;
-              isNixOs = true;
-            };
-          }
-        ];
+        imports = sharedModules;
       };
 
-      # Future: MicroVM nodes will be added here
-      # Example:
-      # vm-node-1 = { ... };
-      # vm-node-2 = { ... };
+      # 미래의 MicroVM 노드 추가 시에도 sharedModules를 재사용하거나 확장하기 쉬움
     };
   };
 }

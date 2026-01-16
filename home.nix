@@ -1,4 +1,8 @@
-{isLinux, ...}: {
+{
+  isLinux,
+  homelabConfig,
+  ...
+}: {
   # Enable Home Manager
   programs.home-manager.enable = true;
 
@@ -8,8 +12,8 @@
   # Home manager config
   home = {
     stateVersion = "24.11";
-    username = "limjihoon";
-    homeDirectory = "/home/limjihoon";
+    username = homelabConfig.username;
+    homeDirectory = "/home/${homelabConfig.username}";
   };
 
   # Import existing modules

@@ -3,6 +3,7 @@
   lib,
   pkgs,
   config,
+  homelabConfig,
   sshPublicKey ? "",
   ...
 }: {
@@ -19,7 +20,7 @@
       root_password = {
         neededForUsers = true;
       };
-      limjihoon_password = {
+      "${homelabConfig.username}_password" = {
         neededForUsers = true;
       };
     };
@@ -35,7 +36,7 @@
         hashedPasswordFile = config.sops.secrets.root_password.path;
         openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
       };
-      limjihoon = {
+      ${homelabConfig.username} = {
         isNormalUser = true;
         shell = pkgs.zsh;
         description = "Limjihoon";
@@ -44,7 +45,7 @@
           "wheel"
           "libvirtd"
         ];
-        hashedPasswordFile = config.sops.secrets.limjihoon_password.path;
+        hashedPasswordFile = config.sops.secrets."${homelabConfig.username}_password".path;
         openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
       };
     };

@@ -1,0 +1,32 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+  workflow_run:
+    workflows: ["Flake Update"]
+    types:
+      - completed
+jobs:
+  nix-check:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'workflow_run' ||  github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Setup Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Flake check
+        run: nix flake check --impure
+      - name: Build homelab configuration
+        run: nix run .#colmena -- build --impure
+        # TODO : 해당 키 값은 추후 VAULT 로 마이그레이션 되어야 함
+        # ../../secrets/ssh-public-key.txt 와 겹침
+        env:
+          SSH_PUB_KEY: ${{ secrets.SSH_PUBLIC_KEY }}

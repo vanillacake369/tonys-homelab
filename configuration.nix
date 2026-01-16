@@ -1,7 +1,6 @@
 # Main NixOS configuration for homelab server
 # This replaces Proxmox on bare-metal server
 {
-  pkgs,
   # `modulesPath`는 NixOS 설정 시스템(`nixpkgs`)에서
   # 기본적으로 제공하는 내장 모듈들이 위치한 경로
   modulesPath,
@@ -18,28 +17,12 @@
     # Disko disk partitioning
     ./disko-config.nix
 
-    # System modules
-    ./modules/boot.nix
-    ./modules/locale.nix
-    ./modules/network.nix
-    ./modules/nix-settings.nix
-    ./modules/users.nix
-    ./modules/virtualization.nix
-  ];
-
-  # Essential server packages
-  environment.systemPackages = with pkgs; [
-    neovim
-    vim
-    git
-    htop
-    btop
-    zellij
-    zsh
-    wget
-    curl
-    tree
-    ncdu
+    # System modules (NixOS only)
+    ./modules/nixos/boot.nix
+    ./modules/nixos/locale.nix
+    ./modules/nixos/network.nix
+    ./modules/nixos/nix-settings.nix
+    ./modules/nixos/users.nix
   ];
 
   # NixOS version

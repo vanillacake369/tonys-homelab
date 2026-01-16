@@ -1,5 +1,6 @@
 # User accounts configuration
 {
+  lib,
   pkgs,
   config,
   sshPublicKey ? "",
@@ -7,7 +8,7 @@
 }: {
   # SOPS configuration
   sops = {
-    defaultSopsFile = ../secrets/secrets.yaml;
+    defaultSopsFile = ../../secrets/secrets.yaml;
     defaultSopsFormat = "yaml";
 
     # Use SSH host key for decryption
@@ -24,12 +25,15 @@
     };
   };
 
+  # Enable zsh system-wide
+  programs.zsh.enable = true;
+
   users = {
     mutableUsers = false;
     users = {
       root = {
         hashedPasswordFile = config.sops.secrets.root_password.path;
-        openssh.authorizedKeys.keys = [sshPublicKey];
+        openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
       };
       limjihoon = {
         isNormalUser = true;
@@ -41,14 +45,10 @@
           "libvirtd"
         ];
         hashedPasswordFile = config.sops.secrets.limjihoon_password.path;
-        openssh.authorizedKeys.keys = [sshPublicKey];
+        openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
       };
     };
   };
-
-  # Shell configuration
-  programs.zsh.enable = true;
-  environment.shells = with pkgs; [zsh];
 
   # Allow sudo without password for wheel group
   security.sudo.wheelNeedsPassword = false;

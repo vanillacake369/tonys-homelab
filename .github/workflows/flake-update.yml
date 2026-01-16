@@ -26,3 +26,4 @@ jobs:
             dependencies
             automated
           token: ${{ secrets.GITHUB_TOKEN }}
+          push-to-flakehub: false

@@ -25,7 +25,7 @@ jobs:
       - name: Flake check
         run: nix flake check --impure
       - name: Build homelab configuration
-        run: nix run .#colmena -- build --impure
+        run: nix build .#nixosConfigurations.homelab.config.system.build.toplevel --impure
         # TODO : 해당 키 값은 추후 VAULT 로 마이그레이션 되어야 함
         # ../../secrets/ssh-public-key.txt 와 겹침
         env:

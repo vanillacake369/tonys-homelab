@@ -1,16 +1,16 @@
 [default]
+# Ignore hash or nix store
 extend-ignore-re = [
-  # Nix store paths
-  "/nix/store/[a-z0-9]{32}-.*",
-  # Hash values
-  "sha256-[A-Za-z0-9+/=]{44}",
+    "/nix/store/[a-z0-9]{32}-.*",
+    "sha256-[A-Za-z0-9+/=]{44}",
 ]
 
 [files]
+# Check md, html only
 extend-exclude = [
-  "*.lock",
-  "flake.lock",
+    "*",
+    "!/docs/**",
+    "!/index.html",
+    "!/*.md",
+    "!/README.md",
 ]
-
-[default.extend-words]
-# Add custom words that should be ignored

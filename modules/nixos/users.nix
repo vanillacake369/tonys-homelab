@@ -6,51 +6,49 @@
   homelabConfig,
   sshPublicKey ? "",
   ...
-}: {
-  # SOPS configuration
-  sops = {
-    defaultSopsFile = ../../secrets/secrets.yaml;
-    defaultSopsFormat = "yaml";
-
-    # Use SSH host key for decryption
-    age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"];
-
-    # Define secrets (passwords only)
-    secrets = {
-      root_password = {
+}: let
+  userName = homelabConfig.username;
+  sshKeys = lib.optional (sshPublicKey != "") sshPublicKey;
+  rootPasswordPath = config.sops.secrets.rootPassword.path;
+  userPasswordPath = config.sops.secrets."${userName}Password".path;
+in {
+  sops.secrets = builtins.listToAttrs (map (k: {
+      name = k; # Nix 내부 이름 (예: rootPassword, limjihoonPassword)
+      value = {
+        key = "users/${k}"; # YAML 파일 내 경로 (users/rootPassword)
         neededForUsers = true;
       };
-      "${homelabConfig.username}_password" = {
-        neededForUsers = true;
-      };
-    };
-  };
+    }) [
+      "rootPassword"
+      "${userName}Password"
+    ]);
 
-  # Enable zsh system-wide
   programs.zsh.enable = true;
 
   users = {
     mutableUsers = false;
     users = {
+      # WARNING:
+      # LEAVE '.path' eval here
+      # since sops-nix eval won't happen in let section
+      # sops-nix will be fail to eval secret
       root = {
-        hashedPasswordFile = config.sops.secrets.root_password.path;
-        openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
+        # hashedPasswordFile = config.sops.secrets.rootPassword.path;
+        hashedPasswordFile = rootPasswordPath;
+        openssh.authorizedKeys.keys = sshKeys;
       };
-      ${homelabConfig.username} = {
-        isNormalUser = true;
+
+      "${userName}" = {
         shell = pkgs.zsh;
+        isNormalUser = true;
         description = "Limjihoon";
-        extraGroups = [
-          "networkmanager"
-          "wheel"
-          "libvirtd"
-        ];
-        hashedPasswordFile = config.sops.secrets."${homelabConfig.username}_password".path;
-        openssh.authorizedKeys.keys = lib.optional (sshPublicKey != "") sshPublicKey;
+        extraGroups = ["networkmanager" "wheel" "libvirtd"];
+        # hashedPasswordFile = config.sops.secrets."${userName}Password".path;
+        hashedPasswordFile = userPasswordPath;
+        openssh.authorizedKeys.keys = sshKeys;
       };
     };
   };
 
-  # Allow sudo without password for wheel group
   security.sudo.wheelNeedsPassword = false;
 }

@@ -22,6 +22,7 @@
     ./modules/nixos/locale.nix
     ./modules/nixos/network.nix
     ./modules/nixos/ssh.nix
+    ./modules/nixos/sops.nix
     ./modules/nixos/nix-settings.nix
     ./modules/nixos/users.nix
   ];

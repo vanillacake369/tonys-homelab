@@ -2,9 +2,9 @@
 # TODO : 예시코드. 실제 구성도에 맞춰 수정할 것
 # TODO : networking.bridges."vmbr0".interfaces = [ "eth0" ]; # WAN NIC
 # TODO : networking.bridges."vmbr1".interfaces = [ "eth1" ]; # LAN NIC
-_: {
+{homelabConfig, ...}: {
   networking = {
-    hostName = "homelab";
+    hostName = homelabConfig.hostname;
 
     networkmanager = {
       enable = true;

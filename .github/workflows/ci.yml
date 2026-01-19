@@ -1,0 +1,53 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+  workflow_run:
+    workflows: ["Flake Update"]
+    types:
+      - completed
+jobs:
+  nix-check:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'workflow_run' ||  github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 5096
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+          remove-docker-images: "true"
+          remove-linux-build-envs: "true"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      # PERF : This will takes some time
+      - name: Setup Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use_flakehub: false
+      - name: Flake check
+        run: nix flake check --impure --no-build
+        # TODO : SSH_PUB_KEY should be migrated to hashicorp vault
+        # ../../secrets/ssh-public-key.txt 와 겹침
+        # NOTE : Github Actions 에이전트의 메모리 용량 부족으로
+        # 아래 build 에 대해서 주석처리
+        # - name: Build homelab configuration
+        #   run: |
+        #     nix build .#nixosConfigurations.homelab.config.system.build.toplevel \
+        #       --impure \
+        #       --max-free 1000000000 \
+        #       --min-free 500000000
+        # env:
+        #   CI: "true"
+        #   SSH_PUB_KEY: ${{ secrets.SSH_PUBLIC_KEY }}

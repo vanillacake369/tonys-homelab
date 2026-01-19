@@ -4,6 +4,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+    paths:
+      - "**.nix"
+      - "flake.lock"
+      - ".github/workflows/*.yml"
   merge_group:
 jobs:
   deadnix:

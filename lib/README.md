@@ -8,7 +8,7 @@
 > 본 인프라 상수는 NixOS Evalution 에 읽혀져 NixOS 에 반영됩니다
 > 이에 따라 Runtime 에 동작하는 [sops-nix](https://github.com/Mic92/sops-nix) 는 사용이 불가능합니다.
 >
-> ```
+> ```mermaid
 > graph TD
 >     subgraph NixOS_Infrastructure ["NixOS System Lifecycle"]
 >

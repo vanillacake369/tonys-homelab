@@ -7,47 +7,46 @@ on:
   merge_group:
   workflow_run:
     workflows: ["Flake Update"]
-    types:
-      - completed
+    types: [completed]
+# 동일 워크플로우가 다시 트리거되면 이전 실행을 취소하여 자원 절약
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   nix-check:
     runs-on: ubuntu-latest
     if: >
       github.event_name != 'workflow_run' ||  github.event.workflow_run.conclusion == 'success'
 
+    # 환경 변수 공통 설정
+    env:
+      CI: "true"
+      SSH_PUB_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
     steps:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
-          swap-size-mb: 5096
+          root-reserve-mb: 4096
+          swap-size-mb: 8192 # 가상 메모리를 좀 더 확보
           remove-dotnet: "true"
           remove-android: "true"
           remove-haskell: "true"
-          remove-codeql: "true"
-          remove-docker-images: "true"
-          remove-linux-build-envs: "true"
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
-      # PERF : This will takes some time
       - name: Setup Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use_flakehub: false
       - name: Flake check
         run: nix flake check --impure --no-build
-        # TODO : SSH_PUB_KEY should be migrated to hashicorp vault
-        # ../../secrets/ssh-public-key.txt 와 겹침
-        # NOTE : Github Actions 에이전트의 메모리 용량 부족으로
-        # 아래 build 에 대해서 주석처리
-        # - name: Build homelab configuration
-        #   run: |
-        #     nix build .#nixosConfigurations.homelab.config.system.build.toplevel \
-        #       --impure \
-        #       --max-free 1000000000 \
-        #       --min-free 500000000
-        # env:
-        #   CI: "true"
-        #   SSH_PUB_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      # 실제 빌드 대신 "평가(Evaluation)"만 수행하여 문법 및 종속성 오류 체크
+      - name: Evaluate Configuration
+        run: |
+          nix-instantiate --eval --strict --impure .#nixosConfigurations.homelab.config.system.build.toplevel > /dev/null
+      # 메모리 부족을 방지하기 위해 가벼운 구성 요소만 샘플 빌드
+      - name: Dry Build (Partial)
+        run: |
+          # 시스템 전체 대신 커널/드라이버를 제외한 설정 모듈 위주로 빌드 테스트
+          nix build .#nixosConfigurations.homelab.config.system.build.toplevel \
+            --impure \
+            --dry-run

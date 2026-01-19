@@ -48,12 +48,12 @@ target := ```
 
 # VM IP addresses from constants
 
-vault_ip := `nix eval --raw .#homelabConstants.vms.vault.ip`
-jenkins_ip := `nix eval --raw .#homelabConstants.vms.jenkins.ip`
-registry_ip := `nix eval --raw .#homelabConstants.vms.registry.ip`
-k8s_master_ip := `nix eval --raw '.#homelabConstants.vms."k8s-master".ip'`
-k8s_worker1_ip := `nix eval --raw '.#homelabConstants.vms."k8s-worker-1".ip'`
-k8s_worker2_ip := `nix eval --raw '.#homelabConstants.vms."k8s-worker-2".ip'`
+vault_ip := `nix eval --impure --raw .#homelabConstants.vms.vault.ip`
+jenkins_ip := `nix eval --impure --raw .#homelabConstants.vms.jenkins.ip`
+registry_ip := `nix eval --impure --raw .#homelabConstants.vms.registry.ip`
+k8s_master_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-master".ip'`
+k8s_worker1_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-1".ip'`
+k8s_worker2_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-2".ip'`
 
 # =============================================================================
 # Development Commands (Local Testing)
@@ -61,7 +61,7 @@ k8s_worker2_ip := `nix eval --raw '.#homelabConstants.vms."k8s-worker-2".ip'`
 
 # Check flake configuration for errors
 check:
-    nix flake check --all-systems
+    nix flake check --impure --all-systems
 
 # Build configuration locally (dry-run)
 build:
@@ -131,6 +131,16 @@ vm-stop-all:
 # Restart a specific VM
 vm-restart vm:
     ssh {{ target }} "sudo microvm restart {{ vm }}"
+
+# Restart all VMs
+vm-restart-all:
+    #!/usr/bin/env bash
+    echo "🟢 Restarting all MicroVMs..."
+    ssh {{ target }} "sudo systemctl restart 'microvm@*'"
+    echo "⏳ Waiting for VMs to restart..."
+    sleep 3
+    echo "✓ All VMs restarted"
+    just vm-status
 
 # View VM logs (follow mode)
 vm-logs vm:

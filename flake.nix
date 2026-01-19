@@ -35,11 +35,18 @@
 
     # 2. CI 환경 감지 및 상수 로드
     isCI = builtins.getEnv "CI" == "true";
-    homelabConstants = import (
-      if isCI || !(builtins.pathExists ./lib/homelab-constants.nix)
-      then ./lib/homelab-constants-example.nix
-      else ./lib/homelab-constants.nix
-    );
+    homelabConstants = let
+      realFile = ./lib/homelab-constants.nix;
+      exampleFile = ./lib/homelab-constants-example.nix;
+    in
+      if builtins.pathExists realFile
+      then import realFile
+      else import exampleFile;
+    # homelabConstants = import (
+    #   if isCI || !(builtins.pathExists ./lib/homelab-constants.nix)
+    #   then ./lib/homelab-constants-example.nix
+    #   else ./lib/homelab-constants.nix
+    # );
 
     # 3. 공통 아규먼트 (SpecialArgs)
     specialArgs = {

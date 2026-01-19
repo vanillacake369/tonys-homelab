@@ -9,7 +9,7 @@ hosts/*/hardware-configuration.nix
 *.key
 *.pem
 secrets/ssh-public-key.txt
-lib/homelab-constants.nix
+# lib/homelab-constants.nix
 
 # Editor files
 .vscode/

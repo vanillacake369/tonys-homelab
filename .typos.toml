@@ -1,0 +1,16 @@
+[default]
+# Ignore hash or nix store
+extend-ignore-re = [
+    "/nix/store/[a-z0-9]{32}-.*",
+    "sha256-[A-Za-z0-9+/=]{44}",
+]
+
+[files]
+# Check md, html only
+extend-exclude = [
+    "*",
+    "!/docs/**",
+    "!/index.html",
+    "!/*.md",
+    "!/README.md",
+]

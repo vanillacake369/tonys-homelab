@@ -25,56 +25,53 @@
     };
   };
 
-  outputs = {
-    nixpkgs,
-    home-manager,
-    disko,
-    sops-nix,
-    microvm,
-    colmena,
-    ...
-  } @ inputs: let
-    # 상수 및 기본 설정
-    system = "x86_64-linux";
-    supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
-    homelabConstants = import ./lib/homelab-constants.nix;
+  outputs = {nixpkgs, ...} @ inputs: let
+    inherit (nixpkgs) lib;
 
-    # 공통 아규먼트 (SpecialArgs)
+    # 1. 아키텍처 및 시스템 설정
+    mainSystem = "x86_64-linux";
+    supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
+    forAllSystems = f: lib.genAttrs supportedSystems f;
+
+    # 2. CI 환경 감지 및 상수 로드
+    isCI = builtins.getEnv "CI" == "true";
+    homelabConstants = import (
+      if isCI || !(builtins.pathExists ./lib/homelab-constants.nix)
+      then ./lib/homelab-constants-example.nix
+      else ./lib/homelab-constants.nix
+    );
+
+    # 3. 공통 아규먼트 (SpecialArgs)
     specialArgs = {
       inherit inputs homelabConstants;
       homelabConfig = homelabConstants.host;
+      # Flake 외부 환경변수는 --impure 실행 시에만 유효함
       sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
     };
 
-    # MicroVM 정의 (중복 제거를 위해 함수화)
-    mkMicroVMs = config: let
+    # 4. MicroVM 생성기 (DRY - Don't Repeat Yourself)
+    mkMicroVMs = hostConfig: let
+      vms = ["vault" "jenkins" "registry" "k8s-master" "k8s-worker-1" "k8s-worker-2"];
       vmSpecialArgs =
         specialArgs
         // {
-          hostSshKeys = config.users.users.${homelabConstants.host.username}.openssh.authorizedKeys.keys;
+          hostSshKeys = hostConfig.users.users.${homelabConstants.host.username}.openssh.authorizedKeys.keys;
         };
-      mkVM = path: {
-        config = path;
+    in
+      lib.genAttrs vms (name: {
+        config = ./vms/${name}.nix;
         specialArgs = vmSpecialArgs;
         autostart = true;
-      };
-    in {
-      vault = mkVM ./vms/vault.nix;
-      jenkins = mkVM ./vms/jenkins.nix;
-      registry = mkVM ./vms/registry.nix;
-      k8s-master = mkVM ./vms/k8s-master.nix;
-      k8s-worker-1 = mkVM ./vms/k8s-worker-1.nix;
-      k8s-worker-2 = mkVM ./vms/k8s-worker-2.nix;
-    };
+      });
 
-    # 공통 모듈 구성
+    # 5. 공유 모듈 (NixOS & Colmena 공통)
     sharedModules = [
-      disko.nixosModules.disko
-      sops-nix.nixosModules.sops
-      microvm.nixosModules.host
-      home-manager.nixosModules.home-manager
+      inputs.disko.nixosModules.disko
+      inputs.sops-nix.nixosModules.sops
+      inputs.microvm.nixosModules.host
+      inputs.home-manager.nixosModules.home-manager
       ./configuration.nix
-      {
+      ({config, ...}: {
         home-manager = {
           useGlobalPkgs = true;
           useUserPackages = true;
@@ -89,12 +86,8 @@
               isWsl = false;
             };
         };
-      }
-      # INFO : CI 에서는 microvm build 하지 않음
-      # MicroVM 호스트 설정 통합
-      ({config, ...}: let
-        isCI = builtins.getEnv "CI" == "true";
-      in {
+
+        # CI 환경에서는 빌드 부하를 줄이기 위해 MicroVM 정의를 비움
         microvm.host.enable = true;
         microvm.vms =
           if isCI
@@ -103,35 +96,35 @@
       })
     ];
   in {
-    # CLI 접근을 위한 상수 노출
-    inherit homelabConstants;
-
-    # 아키텍처별 패키지 (Colmena 등)
-    packages = nixpkgs.lib.genAttrs supportedSystems (sys: {
-      inherit (colmena.packages.${sys}) colmena;
+    # 모든 지원 아키텍처에서 colmena 패키지 사용 가능
+    packages = forAllSystems (sys: {
+      inherit (inputs.colmena.packages.${sys}) colmena;
     });
 
-    # 로컬 빌드용 설정
-    nixosConfigurations.homelab = nixpkgs.lib.nixosSystem {
-      inherit system specialArgs;
+    # 로컬 빌드용 (nixos-rebuild)
+    nixosConfigurations.homelab = lib.nixosSystem {
+      system = mainSystem;
+      inherit specialArgs;
       modules = sharedModules;
     };
 
-    # Colmena 배포 설정
-    colmenaHive = colmena.lib.makeHive {
+    # 원격 배포용 (colmena)
+    colmenaHive = inputs.colmena.lib.makeHive {
       meta = {
-        nixpkgs = import nixpkgs {inherit system;};
+        nixpkgs = import nixpkgs {system = mainSystem;};
         inherit specialArgs;
       };
       homelab = {
-        deployment = {
-          targetHost = homelabConstants.host.deployment.targetHost;
-          targetUser = homelabConstants.host.deployment.targetUser;
+        deployment = with homelabConstants.host.deployment; {
+          inherit targetHost targetUser;
           buildOnTarget = true;
           tags = ["physical" "homelab"];
         };
         imports = sharedModules;
       };
     };
+
+    # 외부에서 상수를 참조할 수 있도록 노출
+    inherit homelabConstants;
   };
 }

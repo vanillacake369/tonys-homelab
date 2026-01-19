@@ -6,14 +6,26 @@
 
 > [!IMPORTANT]
 > 본 인프라 상수는 NixOS Evalution 에 읽혀져 NixOS 에 반영됩니다
-> 이에 따라 Runtime 에 동작하는 [sops-nix](https://github.com/Mic92/sops-nix) 는 사용이 불가능합니다.
+> Runtime 에 동작하는 [sops-nix](https://github.com/Mic92/sops-nix) 는 사용이 불가능합니다.
+> 이에 따라 [git-crypt](https://github.com/AGWA/git-crypt) 를 사용하여 lib/homelab-constants.nix 를 암호화합니다.
 >
 > ```mermaid
 > graph TD
 >     subgraph NixOS_Infrastructure ["NixOS System Lifecycle"]
 >
+>         subgraph Security_Layer ["0. Security Layer (데이터 보호)"]
+>             direction LR
+>             G[(".git-crypt key")]
+>             H[("Encrypted constants.nix<br/>(on Git/GitHub)")]
+>             I["git-crypt unlock"]
+>
+>             H --> I
+>             G --> I
+>         end
+>
 >         subgraph Evaluation ["1. Evaluation (설계 단계)"]
 >             direction TB
+>             I -- "Plaintext 제공" --> A
 >             A["Nix Source Codes<br/>(flake.nix, constants.nix)"]
 >             B["Nix Evaluator"]
 >             A --> B
@@ -45,10 +57,12 @@
 >
 >     %% Styling
 >     style NixOS_Infrastructure fill:#f5f5f5,stroke:#333,stroke-width:3px
+>     style Security_Layer fill:#e1f5fe,stroke:#01579b,stroke-dasharray: 5 5
 >     style Evaluation fill:#fff,stroke:#777
 >     style Build fill:#fff,stroke:#777
 >     style Runtime fill:#fff,stroke:#777
 >     style S fill:#ff9900,stroke:#333,stroke-width:2px,color:#fff
+>     style I fill:#0288d1,stroke:#fff,color:#fff,stroke-width:2px
 > ```
 
 홈랩 인프라의 **Single Source of Truth**입니다.

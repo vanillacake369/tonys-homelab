@@ -9,9 +9,22 @@ jobs:
   deadnix:
     name: Dead Code Check
     runs-on: ubuntu-latest
+    # 환경 변수 공통 설정
+    env:
+      GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Install git-crypt
+        run: sudo apt-get update && sudo apt-get install -y git-crypt
+      - name: Unlock git-crypt
+        run: |
+          # Base64로 저장된 키를 다시 파일로 복원
+          echo "$GIT_CRYPT_KEY" | base64 -d > ./git-crypt.key
+          # 복호화 실행
+          git-crypt unlock ./git-crypt.key
+          # 사용한 키 파일 삭제 (보안)
+          rm ./git-crypt.key
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
       - name: Setup Magic Nix Cache

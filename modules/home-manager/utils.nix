@@ -36,5 +36,6 @@
     nftables
     screen
     ngrok
+    bind
   ];
 }

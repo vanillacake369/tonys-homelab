@@ -15,6 +15,14 @@ in {
       # TEMPORARY: 빈 비밀번호 허용 (개발 전용)
       initialHashedPassword = "";
       hashedPassword = "";
+      # TODO : 어떻게 하면 이걸 자동으로
+      # homelab 에서 가져오도록
+      # 할 수 있을까?
+      # (아래는 서버 구성 후 직접 가져온것 )
+      # TODO : sops 사용하여 암호화하기
+      openssh.authorizedKeys.keys = [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICgKsYPtQJYXLQweE0n3bRo1wkNhsNIjbBaA+D1R0/fc limjihoon@homelab"
+      ];
     };
   };
 
@@ -81,13 +89,27 @@ in {
     ];
   };
 
+  # 모든 노드 설정 파일에 공통 추가
+  networking.hosts = {
+    "${homelabConstants.vms.k8s-master.ip}" = [homelabConstants.vms.k8s-master.hostname];
+    "${homelabConstants.vms.k8s-worker-1.ip}" = [homelabConstants.vms.k8s-worker-1.hostname];
+    "${homelabConstants.vms.k8s-worker-2.ip}" = [homelabConstants.vms.k8s-worker-2.hostname];
+  };
+
+  # NOTE : 테스트를 위한 설정
   # SSH service
   services.openssh = {
     enable = true;
     settings = {
-      PermitRootLogin = "yes"; # TEMPORARY: Allow root with password for development
-      PasswordAuthentication = true; # TEMPORARY: Enable password authentication
+      PermitRootLogin = "yes";
+      PasswordAuthentication = true;
     };
+    hostKeys = [
+      {
+        path = "/var/lib/ssh/ssh_host_ed25519_key";
+        type = "ed25519";
+      }
+    ];
   };
 
   # Container runtime and tools
@@ -96,6 +118,7 @@ in {
     kubernetes
     curl
     jq
+    bind
   ];
 
   # Enable container runtime

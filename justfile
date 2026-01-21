@@ -7,7 +7,10 @@ ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-pu
 
 # SSH target: Auto-detect from ~/.ssh/config by matching WAN IP
 
-target := ```
+vm_order := "vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
+
+ target := ```
+
   wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
   if [ -z "$wan_ip" ]; then
     echo "Error: Failed to read WAN IP from flake" >&2
@@ -65,7 +68,37 @@ check:
 
 # Build configuration locally (dry-run)
 build:
-    SSH_PUB_KEY='{{ ssh_public_key }}' nix run .#colmena -- build --on homelab
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on homelab
+
+# Build by target (host, vms, or node)
+# Usage: just build host
+# Usage: just build vms
+# Usage: just build k8s-master
+# Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
+# Tags: host, vms, k8s
+# Targets: @host, @vms, @k8s, or node name
+build target:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ target }}" = "host" ]; then
+        on_target="@host"
+    elif [ "{{ target }}" = "vms" ]; then
+        on_target="@vms"
+    elif [ "{{ target }}" = "k8s" ]; then
+        on_target="@k8s"
+    else
+        on_target="{{ target }}"
+    fi
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on "$on_target"
+
+# Build all nodes in order (host -> vm_order)
+build-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on @host
+    for vm in {{ vm_order }}; do
+        SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on "$vm"
+    done
 
 # Format Nix files
 fmt:
@@ -100,7 +133,38 @@ show-config:
 
 # Deploy to homelab server
 deploy:
-    SSH_PUB_KEY='{{ ssh_public_key }}' nix run .#colmena -- apply --verbose --impure
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure
+
+# Deploy by target (host, vms, or node)
+# Usage: just deploy host
+# Usage: just deploy vms
+# Usage: just deploy k8s-master
+# Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
+# Tags: host, vms, k8s
+# Targets: @host, @vms, @k8s, or node name
+deploy target:
+
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ target }}" = "host" ]; then
+        on_target="@host"
+    elif [ "{{ target }}" = "vms" ]; then
+        on_target="@vms"
+    elif [ "{{ target }}" = "k8s" ]; then
+        on_target="@k8s"
+    else
+        on_target="{{ target }}"
+    fi
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on "$on_target"
+
+# Deploy all nodes in order (host -> vm_order)
+deploy-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on @host
+    for vm in {{ vm_order }}; do
+        SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on "$vm"
+    done
 
 # =============================================================================
 # MicroVM Management
@@ -112,11 +176,11 @@ vm-status:
 
 # Start a specific VM
 vm-start vm:
-    ssh {{ target }} "sudo microvm start {{ vm }}"
+    ssh {{ target }} "sudo systemctl start microvm@{{ vm }}"
 
 # Stop a specific VM
 vm-stop vm:
-    ssh {{ target }} "sudo microvm stop {{ vm }}"
+    ssh {{ target }} "sudo systemctl stop microvm@{{ vm }}"
 
 # Stop all VMs
 vm-stop-all:
@@ -130,16 +194,40 @@ vm-stop-all:
 
 # Restart a specific VM
 vm-restart vm:
-    ssh {{ target }} "sudo microvm restart {{ vm }}"
+    ssh {{ target }} "sudo systemctl restart microvm@{{ vm }}"    
 
-# Restart all VMs
+# Restart all VMs and wait for them to be active
 vm-restart-all:
     #!/usr/bin/env bash
-    echo "🟢 Restarting all MicroVMs..."
-    ssh {{ target }} "sudo systemctl restart 'microvm@*'"
-    echo "⏳ Waiting for VMs to restart..."
-    sleep 3
-    echo "✓ All VMs restarted"
+    set -e
+    # 쉼표 없이 공백으로 구분된 VM 리스트
+    VMS="vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
+    echo "🟢 Restarting all MicroVMs on {{ target }}..."
+    # 1. 모든 서비스를 동시에 재시작 명령 (systemd가 병렬로 처리함)
+    for vm in $VMS; do
+        echo "🔄 Sending restart signal to microvm@$vm..."
+        ssh {{ target }} "sudo systemctl restart microvm@$vm" &
+    done
+    wait 
+    echo "⏳ Waiting for VMs to stabilize..."
+    # 2. 상태 확인 루프
+    # running 상태가 아닌 유닛 개수 체크
+    # microvm@ 뒤에 이름이 붙은 서비스들 중 running이 아닌 것을 찾음
+    MAX_RETRIES=15
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        FAILED_COUNT=$(ssh {{ target }} "systemctl list-units 'microvm@*' --no-legend | grep -v 'running' | wc -l || true")
+        if [ "$FAILED_COUNT" -eq 0 ]; then
+            echo "✅ All VMs are now running perfectly."
+            break
+        fi
+        if [ "$i" -eq "$MAX_RETRIES" ]; then
+            echo "⚠️  Some VMs are taking too long or failed to start."
+            just vm-status
+            exit 1
+        fi
+        echo "... waiting ($i/$MAX_RETRIES)"
+        sleep 3
+    done
     just vm-status
 
 # View VM logs (follow mode)

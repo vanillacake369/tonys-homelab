@@ -150,6 +150,54 @@ just deploy
 
 **배포 방식:** Colmena가 SSH로 homelab에 연결하여 원격 빌드 및 적용
 
+#### 부분 배포 (태그/노드)
+
+```bash
+# 물리 호스트만 적용
+colmena apply --on @host
+
+# 모든 VM만 적용
+colmena apply --on @vms
+
+# Kubernetes 노드만 적용
+colmena apply --on @k8s
+
+# 특정 VM만 적용
+colmena apply --on k8s-master
+```
+
+#### just 배포 단축 명령
+
+```bash
+# 단일 노드 배포
+just deploy jenkins
+
+# 호스트만 배포
+just deploy host
+
+# VM 전체 배포
+just deploy vms
+
+# 호스트 -> vm_order 순차 배포
+just deploy-all
+```
+
+#### just 빌드 단축 명령
+
+```bash
+# 단일 노드 빌드
+just build jenkins
+
+# 호스트만 빌드
+just build host
+
+# VM 전체 빌드
+just build vms
+
+# 호스트 -> vm_order 순차 빌드
+just build-all
+```
+
 ### MicroVM 관리
 
 ```bash

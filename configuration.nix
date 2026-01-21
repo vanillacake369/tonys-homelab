@@ -26,6 +26,7 @@
     ./modules/nixos/nix-settings.nix
     ./modules/nixos/users.nix
     ./modules/nixos/microvm-storage.nix
+    ./modules/nixos/tailscale.nix
   ];
 
   # NixOS version

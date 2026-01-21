@@ -9,7 +9,7 @@ ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-pu
 
 vm_order := "vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
 
- target := ```
+target := ```
 
   wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
   if [ -z "$wan_ip" ]; then
@@ -67,17 +67,11 @@ check:
     nix flake check --impure --all-systems
 
 # Build configuration locally (dry-run)
-build:
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on homelab
-
-# Build by target (host, vms, or node)
-# Usage: just build host
+# Usage: just build
+# Usage: just build jenkins
 # Usage: just build vms
-# Usage: just build k8s-master
-# Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
-# Tags: host, vms, k8s
-# Targets: @host, @vms, @k8s, or node name
-build target:
+# Usage: just build k8s
+build target="host":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ target }}" = "host" ]; then
@@ -131,19 +125,15 @@ show-config:
 # Production Deployment
 # =============================================================================
 
-# Deploy to homelab server
-deploy:
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure
-
 # Deploy by target (host, vms, or node)
+# Usage: just deploy
 # Usage: just deploy host
 # Usage: just deploy vms
 # Usage: just deploy k8s-master
 # Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
 # Tags: host, vms, k8s
 # Targets: @host, @vms, @k8s, or node name
-deploy target:
-
+deploy target="host":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ target }}" = "host" ]; then

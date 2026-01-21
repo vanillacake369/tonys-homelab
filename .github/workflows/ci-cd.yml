@@ -1,0 +1,89 @@
+name: CI/CD
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "**.nix"
+      - "flake.lock"
+      - ".github/workflows/*.yml"
+  merge_group:
+  workflow_run:
+    workflows: ["Flake Update"]
+    types: [completed]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Setup Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Unlock Secrets (git-crypt)
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > ./git-crypt.key
+          git-crypt unlock ./git-crypt.key
+          rm ./git-crypt.key
+      - name: Flake check
+        run: nix flake check --impure --no-build
+      - name: Dry Build
+        run: |
+          nix build .#nixosConfigurations.homelabCi.config.system.build.toplevel \
+            --impure \
+            --dry-run
+  cd:
+    runs-on: ubuntu-latest
+    needs: ci
+    # 메인 브랜치 푸시 또는 workflow_run 성공 시에만 실행
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_run')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Tailscale Connect
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:cd
+      - name: Verify Tailscale Connection
+        run: |
+          tailscale status
+          tailscale ping --c 3 homelab
+      - name: Restore Secrets (git-crypt & sops)
+        run: |
+          # git-crypt 해제
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > ./git-crypt.key
+          git-crypt unlock ./git-crypt.key
+          rm ./git-crypt.key
+          # sops age key 설정 (sops-nix가 참조하는 표준 경로)
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          # 환경변수로도 등록 (선택 사항이나 권장)
+          echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
+      - name: Deploy via Just
+        run: |
+          # nix profile 대신 nix-shell이나 nix run을 사용하여 환경 오염 방지
+          nix run nixpkgs#just -- deploy

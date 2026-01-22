@@ -51,7 +51,7 @@
 
     # MicroVM 생성기 (DRY - Don't Repeat Yourself)
     mkMicroVMs = hostConfig: let
-      vms = ["opnsense"];
+      vms = [];
       vmSpecialArgs =
         specialArgs
         // {
@@ -100,6 +100,7 @@
     # VM 공통 모듈 (Colmena 노드용)
     # sops는 VM의 SSH host key를 복호화 키로 사용
     vmModules = [
+      inputs.microvm.nixosModules.microvm
       ./modules/nixos/sops.nix
     ];
   in {
@@ -127,21 +128,22 @@
     # TODO : ./justfile 의 deploy 는 전체 배포로 남겨두되
     # 분리한 Colmena 별로 deploy 를 따로 구성하여
     # fractional changes 에 대해서 배포가능하게끔 수정해야함
-    colmenaHive = inputs.colmena.lib.makeHive ({
-      meta = {
-        nixpkgs = import nixpkgs {system = mainSystem;};
-        inherit specialArgs;
-      };
-      homelab = {
-        deployment = with homelabConstants.host.deployment; {
-          inherit targetHost targetUser;
-          buildOnTarget = true;
-          tags = ["physical" "homelab" "host"];
+    colmenaHive = let
+      baseHive = {
+        meta = {
+          nixpkgs = import nixpkgs {system = mainSystem;};
+          inherit specialArgs;
         };
-        imports = hostModules;
+        homelab = {
+          deployment = with homelabConstants.host.deployment; {
+            inherit targetHost targetUser;
+            buildOnTarget = true;
+            tags = ["physical" "homelab" "host"];
+          };
+          imports = hostModules;
+        };
       };
-    }
-      // lib.mapAttrs (name: vmInfo: {
+      vmHive = lib.mapAttrs (name: vmInfo: {
         deployment = {
           targetHost = vmInfo.ip;
           targetUser = vmInfo.deployment.user;
@@ -161,8 +163,9 @@
             ];
           })
         ];
-      })
-      homelabConstants.vms);
+      }) (lib.filterAttrs (_: vmInfo: vmInfo.deployment.colmena or true) homelabConstants.vms);
+    in
+      inputs.colmena.lib.makeHive (baseHive // vmHive);
 
     # 외부에서 상수를 참조할 수 있도록 노출
     inherit homelabConstants;

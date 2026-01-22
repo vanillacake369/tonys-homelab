@@ -2,7 +2,6 @@
 # Automatically creates required storage directories for all VMs
 {
   lib,
-  pkgs,
   homelabConstants,
   ...
 }: let
@@ -27,5 +26,4 @@ in {
       "d /var/lib/microvms 0755 microvm kvm - -"
       "d /var/lib/microvms/iso 0755 microvm kvm - -"
     ];
-
 }

@@ -153,11 +153,11 @@ just deploy
 #### 부분 배포 (태그/노드)
 
 ```bash
-# 물리 호스트만 적용
-colmena apply --on @host
+# homelab 노드만 적용
+colmena apply --on @homelab
 
-# 모든 VM만 적용
-colmena apply --on @vms
+# VM 개별 태그로 적용
+colmena apply --on @vm-vault,@vm-jenkins,@vm-registry,@vm-k8s-master,@vm-k8s-worker-1,@vm-k8s-worker-2
 
 # Kubernetes 노드만 적용
 colmena apply --on @k8s
@@ -172,13 +172,13 @@ colmena apply --on k8s-master
 # 단일 노드 배포
 just deploy jenkins
 
-# opnsense는 호스트에서만 관리
-just deploy host
+# opnsense는 homelab에서만 관리
+just deploy homelab
 
-# 호스트만 배포
-just deploy host
+# homelab만 배포
+just deploy homelab
 
-# VM 전체 배포
+# VM 전체 배포 (개별 태그 모음)
 just deploy vms
 
 # 호스트 -> vm_order 순차 배포
@@ -191,10 +191,10 @@ just deploy-all
 # 단일 노드 빌드
 just build jenkins
 
-# 호스트만 빌드
-just build host
+# homelab만 빌드
+just build homelab
 
-# VM 전체 빌드
+# VM 전체 빌드 (개별 태그 모음)
 just build vms
 
 # 호스트 -> vm_order 순차 빌드

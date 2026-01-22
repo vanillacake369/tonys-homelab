@@ -29,6 +29,8 @@
     ./modules/nixos/tailscale.nix
   ];
 
+  nixpkgs.config.allowUnfree = true;
+
   # NixOS version
   system.stateVersion = "24.11";
 }

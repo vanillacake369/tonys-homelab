@@ -172,6 +172,9 @@ colmena apply --on k8s-master
 # 단일 노드 배포
 just deploy jenkins
 
+# opnsense는 호스트에서만 관리
+just deploy host
+
 # 호스트만 배포
 just deploy host
 

@@ -6,6 +6,11 @@
   clientId = config.sops.secrets."tailscale/clientId".path;
   clientSecret = config.sops.secrets."tailscale/clientSecret".path;
 in {
+  sops.secrets = {
+    "tailscale/clientId".key = "tailscale/clientId";
+    "tailscale/clientSecret".key = "tailscale/clientSecret";
+  };
+
   # Tailscale 패키지 설치
   environment.systemPackages = [pkgs.tailscale];
 

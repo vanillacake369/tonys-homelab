@@ -1,0 +1,88 @@
+name: CI Common
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+    secrets:
+      GIT_CRYPT_KEY:
+        required: true
+      SOPS_AGE_KEY:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      TS_DEST_IP:
+        required: false
+      SSH_HOST_KEY:
+        required: false
+      SSH_PUB_KEY:
+        required: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize build space
+        if: inputs.mode == 'ci'
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v21
+      - name: Setup Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+      - name: Unlock Secrets (git-crypt)
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > ./git-crypt.key
+          git-crypt unlock ./git-crypt.key
+          rm ./git-crypt.key
+      - name: Flake check
+        if: inputs.mode == 'ci'
+        run: nix flake check --impure --no-build
+      - name: Dry Build
+        if: inputs.mode == 'ci'
+        run: |
+          nix build .#nixosConfigurations.homelabCi.config.system.build.toplevel \
+            --impure \
+            --dry-run
+      - name: Tailscale Connect
+        if: inputs.mode == 'cd'
+        uses: tailscale/github-action@v4.1.1
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:cd
+          args: --ssh
+      - name: Configure SSH known_hosts
+        if: inputs.mode == 'cd'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.TS_DEST_IP }} ${{ secrets.SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+          cat <<EOF >> ~/.ssh/config
+          Host ${{ secrets.TS_DEST_IP }}
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            User root
+          EOF
+      - name: Restore Secrets (sops)
+        if: inputs.mode == 'cd'
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
+      - name: Colmena Deploy
+        if: inputs.mode == 'cd'
+        run: |
+          SSH_PUB_KEY="${{ secrets.SSH_PUB_KEY }}" \
+            nix run .#colmena -- apply --on homelab --show-trace

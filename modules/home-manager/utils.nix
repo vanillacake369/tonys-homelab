@@ -37,5 +37,6 @@
     screen
     ngrok
     bind
+    lsof
   ];
 }

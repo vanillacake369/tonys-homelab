@@ -273,11 +273,23 @@ SSH 공개키 저장 (평문)
 - NixOS 사용자 authorized_keys 설정
 - `modules/nixos/users.nix`에서 참조
 
-**설정 방법:**
+**생성 및 보관:**
+
+- 개인 로컬에서 공개키 생성 후 저장
+- 파일은 로컬에서만 관리하고 공유 범위를 최소화
 
 ```bash
+# 공개키 생성 (없으면)
+ssh-keygen -t ed25519 -C "homelab"
+
+# 공개키 저장
 cat ~/.ssh/your-key.pub > secrets/ssh-public-key.txt
 ```
+
+**주의:**
+
+- `ssh-public-key.txt`는 평문 파일이므로 Git 커밋 금지
+- `.gitignore`에 포함되어 있는지 확인
 
 ## 참고 자료
 

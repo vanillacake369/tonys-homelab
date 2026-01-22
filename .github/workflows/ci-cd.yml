@@ -67,24 +67,30 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:cd
-      - name: Verify Tailscale Connection
+          args: --ssh
+      # Tailscale 사설망 IP 대역에 대해 호스트 키 검사를 비활성화
+      # Tailscale ACL 허용된 사용자인 root 사용
+      - name: Configure SSH for Tailscale SSH
         run: |
-          tailscale status
-          tailscale ping --c 3 homelab
-    # - name: Restore Secrets (git-crypt & sops)
-    #   run: |
-    #     # git-crypt 해제
-    #     sudo apt-get update && sudo apt-get install -y git-crypt
-    #     echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > ./git-crypt.key
-    #     git-crypt unlock ./git-crypt.key
-    #     rm ./git-crypt.key
-    #
-    #     # sops age key 설정 (sops-nix가 참조하는 표준 경로)
-    #     mkdir -p ~/.config/sops/age
-    #     echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
-    #
-    #     # 환경변수로도 등록 (선택 사항이나 권장)
-    #     echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
-    # - name: Deploy via Just
-    #   run: |
-    #     nix run nixpkgs#just -- deploy
+          mkdir -p ~/.ssh
+          echo "Host 100.*" >> ~/.ssh/config
+          echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+          echo "  UserKnownHostsFile /dev/null" >> ~/.ssh/config
+          echo "  User root" >> ~/.ssh/config
+      - name: Restore Secrets (git-crypt & sops)
+        run: |
+          # git-crypt 해제
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > ./git-crypt.key
+          git-crypt unlock ./git-crypt.key
+          rm ./git-crypt.key
+
+          # sops age key 설정 (sops-nix가 참조하는 표준 경로)
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+
+          # 환경변수로도 등록 (선택 사항이나 권장)
+          echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
+      - name: Colmena Deploy
+        run: |
+          nix run .#colmena -- apply --on --show-trace homelab

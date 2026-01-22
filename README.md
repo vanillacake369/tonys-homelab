@@ -64,9 +64,28 @@ flowchart TB
     style K8s fill:#326ce5,stroke:#58a6ff,color:#fff
 ```
 
-## 모듈 구조
+## Code structure
 
 프로젝트는 모듈 기반으로 구성되어 있습니다. 각 디렉토리의 상세 설명은 해당 README를 참조하세요.
+
+```mermaid
+flowchart TB
+    Developer["Operator"] -->|"just / colmena"| Colmena["Colmena (deploy)"]
+    Colmena -->|"SSH"| Host["NixOS Host (homelab)"]
+    Host -->|"microvm.nix"| MicroVMs["MicroVMs (vms/)"]
+    Host -->|"modules/nixos"| HostModules["NixOS Modules"]
+    Secrets["secrets/secrets.yaml\n(sops-nix)"] -->|"decrypt"| HostSecrets["/run/secrets (Host)"]
+    Secrets -->|"decrypt"| VmSecrets["/run/secrets (VMs)"]
+    HostModules --> Host
+    MicroVMs --> Services["Services"]
+```
+
+**구성 설명:**
+
+- **Colmena**가 `homelab` 호스트로 배포를 실행하고, 호스트가 MicroVM을 관리합니다.
+- **microvm.nix** 기반 VM 정의는 `vms/`에 있고, 호스트에서 실행됩니다.
+- **sops-nix**는 `secrets/secrets.yaml`을 복호화해 `/run/secrets`로 전달합니다.
+- 공통 상수는 `lib/`, 시스템 모듈은 `modules/`, VM 정의는 `vms/`에 위치합니다.
 
 | 모듈         | 설명                                 | 문서                                     |
 | ------------ | ------------------------------------ | ---------------------------------------- |
@@ -85,7 +104,7 @@ flowchart TB
 | `colmena.nix`       | 원격 배포 설정 (flake.nix 내 정의)      |
 | `justfile`          | 작업 자동화 명령어                      |
 
-## 빠른 시작
+## Installation
 
 ### 사전 요구사항
 
@@ -116,7 +135,23 @@ ssh homelab "cat /etc/ssh/ssh_host_ed25519_key.pub | ssh-to-age"
 just init
 ```
 
-## 사용법
+## How to use
+
+### 운영 흐름
+
+```mermaid
+flowchart TB
+    Developer["Operator"] -->|"sops"| Secrets["secrets/secrets.yaml"]
+    Secrets -->|"sops-nix"| RunSecrets["/run/secrets"]
+    Developer -->|"just / colmena"| Colmena["Colmena apply"]
+    Colmena -->|"SSH"| Host["NixOS Host"]
+    Host -->|"microvm.nix"| MicroVMs["MicroVMs"]
+    RunSecrets --> Host
+    RunSecrets --> MicroVMs
+```
+
+- `sops`가 `secrets/secrets.yaml`을 관리하고, `sops-nix`가 복호화된 시크릿을 `/run/secrets`에 제공합니다.
+- `just`와 `colmena`가 배포를 수행하고, 호스트가 `microvm.nix`로 VM을 실행합니다.
 
 ### Secrets 관리 (sops-nix)
 

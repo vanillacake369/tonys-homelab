@@ -93,4 +93,4 @@ jobs:
           echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
       - name: Colmena Deploy
         run: |
-          nix run .#colmena -- apply --on --show-trace homelab
+          nix run .#colmena -- apply --on homelab --show-trace

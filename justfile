@@ -3,13 +3,13 @@
 # Variables dynamically evaluated from Nix constants
 # Single source of truth: lib/homelab-constants.nix and flake.nix
 
-ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo ""; fi`
+ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
 
 # SSH target: Auto-detect from ~/.ssh/config by matching WAN IP
 
-vm_order := "vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
-microvm_list := "opnsense vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
-
+vm_order := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.vmOrder' || { echo "Error: Failed to read vmOrder from flake" >&2; exit 1; }`
+microvm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.microvmList' || { echo "Error: Failed to read microvmList from flake" >&2; exit 1; }`
+vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.vmTagList' || { echo "Error: Failed to read vmTagList from flake" >&2; exit 1; }`
 target := ```
 
   wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
@@ -52,14 +52,14 @@ target := ```
 
 # VM IP addresses from constants
 
-opnsense_wan_ip := `nix eval --impure --raw .#homelabConstants.networks.wan.gateway`
-opnsense_lan_ip := `nix eval --impure --raw .#homelabConstants.networks.vlans.management.gateway`
-vault_ip := `nix eval --impure --raw .#homelabConstants.vms.vault.ip`
-jenkins_ip := `nix eval --impure --raw .#homelabConstants.vms.jenkins.ip`
-registry_ip := `nix eval --impure --raw .#homelabConstants.vms.registry.ip`
-k8s_master_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-master".ip'`
-k8s_worker1_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-1".ip'`
-k8s_worker2_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-2".ip'`
+vault_ip := `nix eval --impure --raw .#homelabConstants.vms.vault.ip || { echo "Error: Failed to read vault IP" >&2; exit 1; }`
+jenkins_ip := `nix eval --impure --raw .#homelabConstants.vms.jenkins.ip || { echo "Error: Failed to read jenkins IP" >&2; exit 1; }`
+registry_ip := `nix eval --impure --raw .#homelabConstants.vms.registry.ip || { echo "Error: Failed to read registry IP" >&2; exit 1; }`
+k8s_master := `nix eval --impure --raw .#homelabConstants.k8s.master || { echo "Error: Failed to read k8s master host" >&2; exit 1; }`
+k8s_worker_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.k8s.workerOrder' || { echo "Error: Failed to read k8s worker list" >&2; exit 1; }`
+k8s_master_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-master".ip' || { echo "Error: Failed to read k8s master IP" >&2; exit 1; }`
+k8s_worker1_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-1".ip' || { echo "Error: Failed to read k8s worker-1 IP" >&2; exit 1; }`
+k8s_worker2_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-2".ip' || { echo "Error: Failed to read k8s worker-2 IP" >&2; exit 1; }`
 
 # =============================================================================
 # Development Commands (Local Testing)
@@ -71,35 +71,104 @@ check:
 
 # Build configuration locally (dry-run)
 # Usage: just build
+# Usage: just build homelab
 # Usage: just build jenkins
-# Usage: just build vms
-# Usage: just build k8s
-build target="host":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{ target }}" = "host" ]; then
-        on_target="@host"
-    elif [ "{{ target }}" = "vms" ]; then
-        on_target="@vms"
-    elif [ "{{ target }}" = "k8s" ]; then
-        on_target="@k8s"
-    else
-        on_target="{{ target }}"
-    fi
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on "$on_target"
+# Usage: just build vm-jenkins
 
-# Build all nodes in order (host -> vm_order)
-build-all:
+# Usage: just build k8s
+_resolve_target target:
     #!/usr/bin/env bash
     set -euo pipefail
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on @host
-    for vm in {{ vm_order }}; do
-        SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- build --on "$vm"
+    if [ "{{ target }}" = "homelab" ]; then
+        echo "@homelab"
+    elif [ "{{ target }}" = "vms" ]; then
+        echo "@"$(echo "{{ vm_tag_list }}" | tr ' ' ',')
+    elif [ "{{ target }}" = "k8s" ]; then
+        echo "@k8s"
+    else
+        echo "{{ target }}"
+    fi
+
+_colmena cmd target extra_flags="" microvm_targets="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    on_target=$(just _resolve_target {{ target }})
+    MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" nix run --impure .#colmena -- {{ cmd }} {{ extra_flags }} --on "$on_target"
+
+_ssh cmd:
+    ssh {{ target }} "{{ cmd }}"
+
+_microvm_action action vm:
+    just _ssh "sudo systemctl {{ action }} microvm@{{ vm }}"
+
+_microvm_status:
+    just _ssh "systemctl list-units 'microvm@*' --no-pager"
+
+_microvm_bulk_action action:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VMS="{{ microvm_list }}"
+    declare -A PIDS=()
+    for vm in $VMS; do
+        echo "🔄 Sending {{ action }} signal to microvm@$vm..."
+        ssh {{ target }} "sudo systemctl {{ action }} microvm@$vm" &
+        PIDS[$vm]=$!
     done
 
-# Format Nix files
-fmt:
-    nix fmt
+    FAILED_VMS=()
+    for vm in "${!PIDS[@]}"; do
+        if ! wait "${PIDS[$vm]}"; then
+            FAILED_VMS+=("$vm")
+        fi
+    done
+
+    if [ ${#FAILED_VMS[@]} -gt 0 ]; then
+        echo "❌ Failed to {{ action }}: ${FAILED_VMS[*]}" >&2
+        exit 1
+    fi
+
+_microvm_wait_running:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    MAX_RETRIES=15
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        FAILED_COUNT=$(ssh {{ target }} "systemctl list-units 'microvm@*' --no-legend --no-pager | awk '{print $1}' | xargs -I {} systemctl show -p SubState --value {} | grep -vc '^running$' || true")
+        if [ "$FAILED_COUNT" -eq 0 ]; then
+            echo "✅ All VMs are now running."
+            exit 0
+        fi
+        if [ "$i" -eq "$MAX_RETRIES" ]; then
+            echo "⚠️  Some VMs are taking too long or failed to start."
+            exit 1
+        fi
+        echo "... waiting ($i/$MAX_RETRIES)"
+        sleep 3
+    done
+
+_vm_ssh ip:
+    ssh -J {{ target }} root@{{ ip }}
+
+_vm_ip vm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ vm }}" in
+        vault) echo "{{ vault_ip }}" ;;
+        jenkins) echo "{{ jenkins_ip }}" ;;
+        registry) echo "{{ registry_ip }}" ;;
+        k8s-master) echo "{{ k8s_master_ip }}" ;;
+        k8s-worker-1|k8s-worker1) echo "{{ k8s_worker1_ip }}" ;;
+        k8s-worker-2|k8s-worker2) echo "{{ k8s_worker2_ip }}" ;;
+        *) echo "Unknown VM: {{ vm }}" >&2; exit 1 ;;
+    esac
+
+build target="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ target }}" = "all" ]; then
+        just _colmena build homelab "" "all"
+        exit 0
+    fi
+    just _colmena build homelab "" "{{ target }}"
 
 # Update flake inputs
 update:
@@ -117,8 +186,6 @@ show-config:
     @echo "WAN Gateway:   $(nix eval --raw .#homelabConstants.networks.wan.gateway)"
     @echo ""
     @echo "=== VM IP Addresses ==="
-    @echo "OPNsense (WAN):         {{ opnsense_wan_ip }}"
-    @echo "OPNsense (LAN):         {{ opnsense_lan_ip }}"
     @echo "Vault (VLAN 10):        {{ vault_ip }}"
     @echo "Jenkins (VLAN 10):      {{ jenkins_ip }}"
     @echo "Registry (VLAN 20):     {{ registry_ip }}"
@@ -129,41 +196,25 @@ show-config:
 # =============================================================================
 # Production Deployment
 # =============================================================================
-
-# Deploy by target (host, vms, or node)
+# Deploy by target (homelab or vm name)
 # Usage: just deploy
-# Usage: just deploy host
-# Usage: just deploy vms
-# Usage: just deploy k8s-master
+# Usage: just deploy homelab
+# Usage: just deploy vault
 # Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
-# Tags: host, vms, k8s
-# Targets: @host, @vms, @k8s, or node name
-deploy target="host":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{ target }}" = "opnsense" ]; then
-        echo "ERROR: opnsense는 호스트에서만 관리됩니다. 'just deploy host'를 사용하세요." >&2
-        exit 1
-    fi
-    if [ "{{ target }}" = "host" ]; then
-        on_target="@host"
-    elif [ "{{ target }}" = "vms" ]; then
-        on_target="@vms"
-    elif [ "{{ target }}" = "k8s" ]; then
-        on_target="@k8s"
-    else
-        on_target="{{ target }}"
-    fi
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on "$on_target"
 
-# Deploy all nodes in order (host -> vm_order)
-deploy-all:
+# Targets: homelab, vm name
+deploy target="all":
     #!/usr/bin/env bash
     set -euo pipefail
-    SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on @host
-    for vm in {{ vm_order }}; do
-        SSH_PUB_KEY="{{ ssh_public_key }}" nix run .#colmena -- apply --verbose --impure --on "$vm"
-    done
+    if [ "{{ target }}" = "all" ]; then
+        just _colmena apply homelab "--verbose --impure" "all"
+        exit 0
+    fi
+    if [ "{{ target }}" = "homelab" ]; then
+        just _colmena apply homelab "--verbose --impure" "none"
+        exit 0
+    fi
+    just _colmena apply homelab "--verbose --impure" "{{ target }}"
 
 # =============================================================================
 # MicroVM Management
@@ -171,142 +222,96 @@ deploy-all:
 
 # Show all VMs status
 vm-status:
-    ssh {{ target }} "systemctl list-units 'microvm@*' --no-pager"
+    just _microvm_status
 
-# Start a specific VM
+# Start a specific VM (or all)
 vm-start vm:
-    ssh {{ target }} "sudo systemctl start microvm@{{ vm }}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ vm }}" = "all" ]; then
+        echo "🟢 Starting all MicroVMs on {{ target }}..."
+        just _microvm_bulk_action start
+        echo "⏳ Waiting for VMs to stabilize..."
+        just _microvm_wait_running
+        just vm-status
+        exit 0
+    fi
+    just _microvm_action start {{ vm }}
 
-# Stop a specific VM
+# Stop a specific VM (or all)
 vm-stop vm:
-    ssh {{ target }} "sudo systemctl stop microvm@{{ vm }}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ vm }}" = "all" ]; then
+        echo "🛑 Stopping all MicroVMs..."
+        just _microvm_bulk_action stop
+        echo "⏳ Waiting for VMs to stop..."
+        sleep 3
+        echo "✓ All VMs stopped"
+        just vm-status
+        exit 0
+    fi
+    just _microvm_action stop {{ vm }}
 
 # Stop all VMs
 vm-stop-all:
-    #!/usr/bin/env bash
-    echo "🛑 Stopping all MicroVMs..."
-    ssh {{ target }} "sudo systemctl stop 'microvm@*'"
-    echo "⏳ Waiting for VMs to stop..."
-    sleep 3
-    echo "✓ All VMs stopped"
-    just vm-status
+    just vm-stop all
 
-# Restart a specific VM
+# Restart a specific VM (or all)
 vm-restart vm:
-    ssh {{ target }} "sudo systemctl restart microvm@{{ vm }}"    
-
-# Restart all VMs and wait for them to be active
-vm-restart-all:
     #!/usr/bin/env bash
-    set -e
-    # 쉼표 없이 공백으로 구분된 VM 리스트
-    VMS="{{ microvm_list }}"
-    echo "🟢 Restarting all MicroVMs on {{ target }}..."
-    # 1. 모든 서비스를 동시에 재시작 명령 (systemd가 병렬로 처리함)
-    for vm in $VMS; do
-        echo "🔄 Sending restart signal to microvm@$vm..."
-        ssh {{ target }} "sudo systemctl restart microvm@$vm" &
-    done
-    wait 
-    echo "⏳ Waiting for VMs to stabilize..."
-    # 2. 상태 확인 루프
-    # running 상태가 아닌 유닛 개수 체크
-    # microvm@ 뒤에 이름이 붙은 서비스들 중 running이 아닌 것을 찾음
-    MAX_RETRIES=15
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        FAILED_COUNT=$(ssh {{ target }} "systemctl list-units 'microvm@*' --no-legend | grep -v 'running' | wc -l || true")
-        if [ "$FAILED_COUNT" -eq 0 ]; then
-            echo "✅ All VMs are now running perfectly."
-            break
-        fi
-        if [ "$i" -eq "$MAX_RETRIES" ]; then
-            echo "⚠️  Some VMs are taking too long or failed to start."
-            just vm-status
-            exit 1
-        fi
-        echo "... waiting ($i/$MAX_RETRIES)"
-        sleep 3
-    done
-    just vm-status
+    set -euo pipefail
+    if [ "{{ vm }}" = "all" ]; then
+        echo "🟢 Restarting all MicroVMs on {{ target }}..."
+        just _microvm_bulk_action restart
+        echo "⏳ Waiting for VMs to stabilize..."
+        just _microvm_wait_running
+        just vm-status
+        exit 0
+    fi
+    just _microvm_action restart {{ vm }}
 
 # View VM logs (follow mode)
 vm-logs vm:
-    ssh {{ target }} "journalctl -u microvm@{{ vm }} -f"
+    just _ssh "journalctl -u microvm@{{ vm }} -f"
 
 # Access VM console (Ctrl-A, X to exit)
 vm-console vm:
     ssh {{ target }} -t "sudo microvm console {{ vm }}"
 
 # SSH into a VM by name
-vm-ssh-vault:
-    ssh -J {{ target }} root@{{ vault_ip }}
-
-vm-ssh-jenkins:
-    ssh -J {{ target }} root@{{ jenkins_ip }}
-
-vm-ssh-registry:
-    ssh -J {{ target }} root@{{ registry_ip }}
-
-vm-ssh-k8s-master:
-    ssh -J {{ target }} root@{{ k8s_master_ip }}
-
-vm-ssh-k8s-worker1:
-    ssh -J {{ target }} root@{{ k8s_worker1_ip }}
-
-vm-ssh-k8s-worker2:
-    ssh -J {{ target }} root@{{ k8s_worker2_ip }}
+vm-ssh vm:
+    just _vm_ssh $(just _vm_ip {{ vm }})
 
 # Ping all VMs to check connectivity
 vm-ping:
     #!/usr/bin/env bash
+    set -euo pipefail
     echo "🔍 Checking VM connectivity..."
     echo ""
     echo "VLAN 10 (Management):"
-    ssh {{ target }} "ping -c 2 {{ vault_ip }} && echo '✓ Vault ({{ vault_ip }})' || echo '✗ Vault ({{ vault_ip }})'"
-    ssh {{ target }} "ping -c 2 {{ jenkins_ip }} && echo '✓ Jenkins ({{ jenkins_ip }})' || echo '✗ Jenkins ({{ jenkins_ip }})'"
+    ssh {{ target }} "ping -c 2 {{ vault_ip }} && echo '✓ Vault ({{ vault_ip }})' || echo '✗ Vault ({{ vault_ip }})'" &
+    PID_VAULT=$!
+    ssh {{ target }} "ping -c 2 {{ jenkins_ip }} && echo '✓ Jenkins ({{ jenkins_ip }})' || echo '✗ Jenkins ({{ jenkins_ip }})'" &
+    PID_JENKINS=$!
+    wait "$PID_VAULT" "$PID_JENKINS"
     echo ""
     echo "VLAN 20 (Services):"
-    ssh {{ target }} "ping -c 2 {{ registry_ip }} && echo '✓ Registry ({{ registry_ip }})' || echo '✗ Registry ({{ registry_ip }})'"
-    ssh {{ target }} "ping -c 2 {{ k8s_master_ip }} && echo '✓ K8s Master ({{ k8s_master_ip }})' || echo '✗ K8s Master ({{ k8s_master_ip }})'"
-    ssh {{ target }} "ping -c 2 {{ k8s_worker1_ip }} && echo '✓ K8s Worker-1 ({{ k8s_worker1_ip }})' || echo '✗ K8s Worker-1 ({{ k8s_worker1_ip }})'"
-    ssh {{ target }} "ping -c 2 {{ k8s_worker2_ip }} && echo '✓ K8s Worker-2 ({{ k8s_worker2_ip }})' || echo '✗ K8s Worker-2 ({{ k8s_worker2_ip }})'"
+    ssh {{ target }} "ping -c 2 {{ registry_ip }} && echo '✓ Registry ({{ registry_ip }})' || echo '✗ Registry ({{ registry_ip }})'" &
+    PID_REGISTRY=$!
+    ssh {{ target }} "ping -c 2 {{ k8s_master_ip }} && echo '✓ K8s Master ({{ k8s_master_ip }})' || echo '✗ K8s Master ({{ k8s_master_ip }})'" &
+    PID_K8S_MASTER=$!
+    ssh {{ target }} "ping -c 2 {{ k8s_worker1_ip }} && echo '✓ K8s Worker-1 ({{ k8s_worker1_ip }})' || echo '✗ K8s Worker-1 ({{ k8s_worker1_ip }})'" &
+    PID_K8S_WORKER1=$!
+    ssh {{ target }} "ping -c 2 {{ k8s_worker2_ip }} && echo '✓ K8s Worker-2 ({{ k8s_worker2_ip }})' || echo '✗ K8s Worker-2 ({{ k8s_worker2_ip }})'" &
+    PID_K8S_WORKER2=$!
+    wait "$PID_REGISTRY" "$PID_K8S_MASTER" "$PID_K8S_WORKER1" "$PID_K8S_WORKER2"
 
 # =============================================================================
 # Initial Setup (One-time operations)
 # =============================================================================
 
-# Generate SSH key on homelab server if not exists
-setup-ssh-key:
-    #!/usr/bin/env bash
-    echo "🔑 Setting up SSH key on homelab server..."
-    ssh {{ target }} 'bash -s' << 'EOF'
-    # Check for any existing SSH keys (ed25519, rsa, homelab.pem)
-    if [ -f ~/.ssh/id_ed25519.pub ]; then
-        echo "✓ SSH key already exists: ~/.ssh/id_ed25519"
-        echo ""
-        echo "Public key:"
-        cat ~/.ssh/id_ed25519.pub
-    elif [ -f ~/.ssh/homelab.pem.pub ]; then
-        echo "✓ SSH key already exists: ~/.ssh/homelab.pem"
-        echo ""
-        echo "Public key:"
-        cat ~/.ssh/homelab.pem.pub
-    elif [ -f ~/.ssh/id_rsa.pub ]; then
-        echo "✓ SSH key already exists: ~/.ssh/id_rsa"
-        echo ""
-        echo "Public key:"
-        cat ~/.ssh/id_rsa.pub
-    else
-        echo "Generating new SSH key..."
-        ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-        echo "✓ SSH key generated: ~/.ssh/id_ed25519"
-        echo ""
-        echo "Public key:"
-        cat ~/.ssh/id_ed25519.pub
-    fi
-    EOF
-
-# Create VM storage directories on host
+# Create VM storage directories on homelab
 vm-setup-storage:
     #!/usr/bin/env bash
     ssh {{ target }} << 'EOF'
@@ -330,332 +335,6 @@ init:
     @sleep 5
     @just vm-status
     @just vm-ping
-
-# =============================================================================
-# Version Management & Rollback
-# =============================================================================
-
-# List all system generations with timestamps
-version-list:
-    @echo "📋 System Generations on {{ target }}:"
-    @echo ""
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system"
-
-# Show current generation details
-version-current:
-    @echo "📍 Current System Generation:"
-    @echo ""
-    @echo "Generation Link:"
-    ssh {{ target }} "readlink /run/current-system"
-    @echo ""
-    @echo "NixOS Version:"
-    ssh {{ target }} "nixos-version"
-    @echo ""
-    @echo "Kernel Version:"
-    ssh {{ target }} "uname -r"
-
-# Rollback to previous generation
-version-rollback:
-    #!/usr/bin/env bash
-    set -e
-    echo "🔄 Rolling back to previous generation..."
-    echo ""
-    echo "=== Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -5"
-    echo ""
-
-    read -p "Continue with rollback? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Rollback cancelled"
-        exit 1
-    fi
-
-    echo "⏳ Stopping all MicroVMs..."
-    ssh {{ target }} "sudo systemctl stop 'microvm@*'"
-
-    echo "🔄 Switching to previous generation..."
-    ssh {{ target }} "sudo nix-env --rollback --profile /nix/var/nix/profiles/system"
-
-    echo "⚙️  Activating configuration..."
-    ssh {{ target }} "sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch"
-
-    echo "🚀 Starting MicroVMs..."
-    ssh {{ target }} "sudo systemctl start 'microvm@vault' 'microvm@jenkins' 'microvm@registry' 'microvm@k8s-master' 'microvm@k8s-worker-1' 'microvm@k8s-worker-2'" || true
-
-    echo ""
-    echo "⏳ Waiting for VMs to stabilize..."
-    sleep 10
-
-    echo ""
-    echo "=== New Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -3"
-
-    echo ""
-    echo "=== MicroVM Status ==="
-    ssh {{ target }} "systemctl list-units 'microvm@*' --no-pager"
-
-    echo ""
-    echo "✅ Rollback completed!"
-
-# Rollback to specific generation number
-version-rollback-to generation:
-    #!/usr/bin/env bash
-    set -e
-    echo "🔄 Rolling back to generation {{ generation }}..."
-    echo ""
-
-    # Check if generation exists
-    if ! ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep -q '^\s*{{ generation }}\s'"; then
-        echo "❌ Error: Generation {{ generation }} does not exist"
-        echo ""
-        echo "Available generations:"
-        ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system"
-        exit 1
-    fi
-
-    echo "=== Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '(current)'"
-    echo ""
-    echo "=== Target Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ generation }}\s'"
-    echo ""
-
-    read -p "Continue with rollback to generation {{ generation }}? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Rollback cancelled"
-        exit 1
-    fi
-
-    echo "⏳ Stopping all MicroVMs..."
-    ssh {{ target }} "sudo systemctl stop 'microvm@*'"
-
-    echo "🔄 Switching to generation {{ generation }}..."
-    ssh {{ target }} "sudo nix-env --switch-generation {{ generation }} --profile /nix/var/nix/profiles/system"
-
-    echo "⚙️  Activating configuration..."
-    ssh {{ target }} "sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch"
-
-    echo "🚀 Starting MicroVMs..."
-    ssh {{ target }} "sudo systemctl start 'microvm@vault' 'microvm@jenkins' 'microvm@registry' 'microvm@k8s-master' 'microvm@k8s-worker-1' 'microvm@k8s-worker-2'" || true
-
-    echo ""
-    echo "⏳ Waiting for VMs to stabilize..."
-    sleep 10
-
-    echo ""
-    echo "=== New Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -3"
-
-    echo ""
-    echo "=== MicroVM Status ==="
-    ssh {{ target }} "systemctl list-units 'microvm@*' --no-pager"
-
-    echo ""
-    echo "=== Connectivity Test ==="
-    just vm-ping
-
-    echo ""
-    echo "✅ Rollback to generation {{ generation }} completed!"
-
-# Rollback to specific generation with system reboot (safer for major changes)
-version-rollback-reboot generation:
-    #!/usr/bin/env bash
-    set -e
-    echo "🔄 Rolling back to generation {{ generation }} with reboot..."
-    echo ""
-
-    # Check if generation exists
-    if ! ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep -q '^\s*{{ generation }}\s'"; then
-        echo "❌ Error: Generation {{ generation }} does not exist"
-        echo ""
-        echo "Available generations:"
-        ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system"
-        exit 1
-    fi
-
-    echo "=== Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '(current)'"
-    echo ""
-    echo "=== Target Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ generation }}\s'"
-    echo ""
-    echo "⚠️  This will reboot the entire homelab system!"
-    echo ""
-
-    read -p "Continue with rollback and reboot? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Rollback cancelled"
-        exit 1
-    fi
-
-    echo "⏳ Stopping all MicroVMs..."
-    ssh {{ target }} "sudo systemctl stop 'microvm@*'"
-
-    echo "🔄 Switching to generation {{ generation }}..."
-    ssh {{ target }} "sudo nix-env --switch-generation {{ generation }} --profile /nix/var/nix/profiles/system"
-
-    echo "⚙️  Activating configuration..."
-    ssh {{ target }} "sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch"
-
-    echo "🔄 Rebooting homelab... (SSH connection will close)"
-    ssh {{ target }} "sudo reboot" || true
-
-    echo ""
-    echo "⏳ Waiting for homelab to come back online..."
-    sleep 30
-    until ssh -o ConnectTimeout=2 {{ target }} "exit" 2>/dev/null; do
-        echo "Still waiting for {{ target }}..."
-        sleep 5
-    done
-
-    echo ""
-    echo "✨ Homelab is back! Verifying system..."
-    echo ""
-    echo "=== Current Generation ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -3"
-
-    echo ""
-    echo "=== MicroVM Status ==="
-    ssh {{ target }} "systemctl list-units 'microvm@*' --no-pager"
-
-    echo ""
-    echo "=== Connectivity Test ==="
-    just vm-ping
-
-    echo ""
-    echo "✅ Rollback to generation {{ generation }} with reboot completed!"
-
-# Compare two generations (show package changes)
-version-diff from to:
-    #!/usr/bin/env bash
-    echo "🔍 Comparing generation {{ from }} → {{ to }}..."
-    echo ""
-
-    # Check if generations exist
-    if ! ssh {{ target }} "test -L /nix/var/nix/profiles/system-{{ from }}-link"; then
-        echo "❌ Error: Generation {{ from }} does not exist"
-        exit 1
-    fi
-
-    if ! ssh {{ target }} "test -L /nix/var/nix/profiles/system-{{ to }}-link"; then
-        echo "❌ Error: Generation {{ to }} does not exist"
-        exit 1
-    fi
-
-    echo "=== Generation {{ from }} ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ from }}\s'" || echo "Generation {{ from }}"
-    echo ""
-    echo "=== Generation {{ to }} ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ to }}\s'" || echo "Generation {{ to }}"
-    echo ""
-    echo "=== Package Changes ==="
-    ssh {{ target }} "nix store diff-closures /nix/var/nix/profiles/system-{{ from }}-link /nix/var/nix/profiles/system-{{ to }}-link"
-
-# Compare specific generation with current
-version-compare-current generation:
-    #!/usr/bin/env bash
-    echo "🔍 Comparing generation {{ generation }} with current..."
-    echo ""
-
-    # Get current generation number
-    current=$(ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '(current)' | awk '{print \$1}'")
-
-    echo "Current generation: $current"
-    echo "Target generation: {{ generation }}"
-    echo ""
-
-    just version-diff {{ generation }} $current
-
-# Cleanup old generations (keep recent N generations)
-version-cleanup days:
-    #!/usr/bin/env bash
-    echo "🧹 Cleaning up generations older than {{ days }} days..."
-    echo ""
-    echo "=== Generations to be deleted ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system" | while read line; do
-        gen_date=$(echo "$line" | grep -oP '\d{4}-\d{2}-\d{2}')
-        if [ ! -z "$gen_date" ]; then
-            gen_age=$(( ($(date +%s) - $(date -d "$gen_date" +%s)) / 86400 ))
-            if [ $gen_age -gt {{ days }} ] && ! echo "$line" | grep -q "(current)"; then
-                echo "$line (age: ${gen_age} days)"
-            fi
-        fi
-    done
-    echo ""
-
-    read -p "Continue with cleanup? This will delete old generations. (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Cleanup cancelled"
-        exit 1
-    fi
-
-    echo "🗑️  Deleting old generations..."
-    ssh {{ target }} "sudo nix-env --delete-generations {{ days }}d --profile /nix/var/nix/profiles/system"
-
-    echo "♻️  Running garbage collection..."
-    ssh {{ target }} "sudo nix-collect-garbage"
-
-    echo "✨ Optimizing nix store..."
-    ssh {{ target }} "sudo nix-store --optimise"
-
-    echo ""
-    echo "=== Remaining Generations ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system"
-
-    echo ""
-    echo "=== Disk Usage ==="
-    ssh {{ target }} "df -h /nix"
-
-    echo ""
-    echo "✅ Cleanup completed!"
-
-# Delete specific generation
-version-delete generation:
-    #!/usr/bin/env bash
-    set -e
-    echo "🗑️  Deleting generation {{ generation }}..."
-    echo ""
-
-    # Check if trying to delete current generation
-    if ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ generation }}\s' | grep -q '(current)'"; then
-        echo "❌ Error: Cannot delete current generation ({{ generation }})"
-        echo "Please rollback to a different generation first"
-        exit 1
-    fi
-
-    # Check if generation exists
-    if ! ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep -q '^\s*{{ generation }}\s'"; then
-        echo "❌ Error: Generation {{ generation }} does not exist"
-        exit 1
-    fi
-
-    echo "=== Generation to delete ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | grep '^\s*{{ generation }}\s'"
-    echo ""
-
-    read -p "Delete generation {{ generation }}? This cannot be undone. (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Deletion cancelled"
-        exit 1
-    fi
-
-    echo "🗑️  Deleting generation {{ generation }}..."
-    ssh {{ target }} "sudo nix-env --delete-generations {{ generation }} --profile /nix/var/nix/profiles/system"
-
-    echo "♻️  Running garbage collection..."
-    ssh {{ target }} "sudo nix-collect-garbage"
-
-    echo ""
-    echo "=== Remaining Generations ==="
-    ssh {{ target }} "sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -5"
-
-    echo ""
-    echo "✅ Generation {{ generation }} deleted!"
 
 # =============================================================================
 # Network Debugging & Validation
@@ -717,52 +396,6 @@ net-check-networkd:
     echo "=== VLAN Interface States ==="
     ssh {{ target }} "networkctl status vlan10 vlan20"
 
-# Test connectivity from host to VMs
-net-test-host-to-vm:
-    #!/usr/bin/env bash
-    echo "🔌 Testing Host → VM Connectivity"
-    echo ""
-    echo "=== VLAN 10 (Management) - Host to VMs ==="
-    echo "Host VLAN10 Gateway"
-    ssh {{ target }} "ping -c 2 -W 2 {{ vault_ip }} && echo '✓ Vault ({{ vault_ip }})' || echo '✗ Vault ({{ vault_ip }}) - FAILED'"
-    ssh {{ target }} "ping -c 2 -W 2 {{ jenkins_ip }} && echo '✓ Jenkins ({{ jenkins_ip }})' || echo '✗ Jenkins ({{ jenkins_ip }}) - FAILED'"
-    echo ""
-    echo "=== VLAN 20 (Services) - Host to VMs ==="
-    echo "Host VLAN20 Gateway"
-    ssh {{ target }} "ping -c 2 -W 2 {{ registry_ip }} && echo '✓ Registry ({{ registry_ip }})' || echo '✗ Registry ({{ registry_ip }})'"
-    ssh {{ target }} "ping -c 2 -W 2 {{ k8s_master_ip }} && echo '✓ K8s Master ({{ k8s_master_ip }})' || echo '✓ K8s Master ({{ k8s_master_ip }})'"
-
-# Test VM internal network configuration (direct SSH)
-net-test-vm-internal vm_name vm_ip:
-    #!/usr/bin/env bash
-    echo "🔧 Testing VM Internal Network: {{ vm_name }} ({{ vm_ip }})"
-    echo ""
-    echo "=== Checking if VM is running ==="
-    if ! ssh {{ target }} "systemctl is-active microvm@{{ vm_name }} --quiet"; then
-        echo "❌ VM {{ vm_name }} is not running!"
-        exit 1
-    fi
-    echo "✓ VM is running"
-    echo ""
-    echo "=== Attempting direct SSH to VM ==="
-    if ssh -J {{ target }} -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@{{ vm_ip }} "hostname"; then
-        echo "✓ SSH connection successful"
-        echo ""
-        echo "=== VM IP Configuration ==="
-        ssh -J {{ target }} -o StrictHostKeyChecking=no root@{{ vm_ip }} "ip addr show"
-        echo ""
-        echo "=== VM Route Table ==="
-        ssh -J {{ target }} -o StrictHostKeyChecking=no root@{{ vm_ip }} "ip route show"
-        echo ""
-        echo "=== VM Network Services ==="
-        ssh -J {{ target }} -o StrictHostKeyChecking=no root@{{ vm_ip }} "systemctl status systemd-networkd --no-pager"
-    else
-        echo "✗ SSH connection failed - VM network not initialized"
-        echo ""
-        echo "=== Checking VM logs ==="
-        ssh {{ target }} "journalctl -u microvm@{{ vm_name }} -n 50 --no-pager"
-    fi
-
 # Check ARP tables (Layer 2 connectivity)
 net-check-arp:
     #!/usr/bin/env bash
@@ -805,27 +438,13 @@ net-diagnose:
     echo "=================================================="
     echo "5. Connectivity Tests"
     echo "=================================================="
-    just net-test-host-to-vm
+    just net-test-homelab-to-vm
     echo ""
     echo "=================================================="
     echo "6. Packet Forwarding & NAT"
     echo "=================================================="
     ssh {{ target }} "sudo sysctl net.ipv4.ip_forward"
     ssh {{ target }} "sudo iptables -t nat -L -n -v | head -20"
-
-# Monitor real-time traffic on VLAN interfaces
-net-monitor-traffic vlan="10":
-    #!/usr/bin/env bash
-    echo "📊 Monitoring VLAN {{ vlan }} Traffic (Press Ctrl+C to stop)"
-    echo ""
-    ssh {{ target }} -t "sudo tcpdump -i vlan{{ vlan }} -n"
-
-# Monitor bridge traffic
-net-monitor-bridge:
-    #!/usr/bin/env bash
-    echo "📊 Monitoring Bridge Traffic (Press Ctrl+C to stop)"
-    echo ""
-    ssh {{ target }} -t "sudo tcpdump -i vmbr0 -e -n vlan"
 
 # Reset VM network interface (restart microvm)
 net-reset-vm vm:
@@ -839,7 +458,7 @@ net-reset-vm vm:
 # Reset all network interfaces (dangerous - use with caution)
 net-reset-all:
     #!/usr/bin/env bash
-    echo "⚠️  WARNING: This will restart systemd-networkd on the host!"
+    echo "⚠️  WARNING: This will restart systemd-networkd on the homelab!"
     echo "This may cause temporary network disruption."
     echo ""
     read -p "Continue? (y/N): " -n 1 -r
@@ -853,24 +472,3 @@ net-reset-all:
     echo "⏳ Waiting for network to stabilize..."
     sleep 5
     echo "✓ Network service restarted"
-    just net-check-networkd
-
-# =============================================================================
-# Utilities
-# =============================================================================
-
-# SSH to homelab server
-ssh:
-    ssh {{ target }}
-
-# Show system status
-status:
-    ssh {{ target }} "nixos-version && uptime && df -h / && free -h"
-
-# Clean old generations (keep last 3)
-clean:
-    ssh {{ target }} "sudo nix-collect-garbage --delete-older-than 7d && sudo nix-store --optimise"
-
-# Show running VMs resource usage
-vm-top:
-    ssh {{ target }} "ps aux | grep -E '(qemu|virtiofsd)' | grep -v grep"

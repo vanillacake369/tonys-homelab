@@ -8,6 +8,7 @@ ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-pu
 # SSH target: Auto-detect from ~/.ssh/config by matching WAN IP
 
 vm_order := "vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
+microvm_list := "opnsense vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
 
 target := ```
 
@@ -51,6 +52,8 @@ target := ```
 
 # VM IP addresses from constants
 
+opnsense_wan_ip := `nix eval --impure --raw .#homelabConstants.networks.wan.gateway`
+opnsense_lan_ip := `nix eval --impure --raw .#homelabConstants.networks.vlans.management.gateway`
 vault_ip := `nix eval --impure --raw .#homelabConstants.vms.vault.ip`
 jenkins_ip := `nix eval --impure --raw .#homelabConstants.vms.jenkins.ip`
 registry_ip := `nix eval --impure --raw .#homelabConstants.vms.registry.ip`
@@ -114,6 +117,8 @@ show-config:
     @echo "WAN Gateway:   $(nix eval --raw .#homelabConstants.networks.wan.gateway)"
     @echo ""
     @echo "=== VM IP Addresses ==="
+    @echo "OPNsense (WAN):         {{ opnsense_wan_ip }}"
+    @echo "OPNsense (LAN):         {{ opnsense_lan_ip }}"
     @echo "Vault (VLAN 10):        {{ vault_ip }}"
     @echo "Jenkins (VLAN 10):      {{ jenkins_ip }}"
     @echo "Registry (VLAN 20):     {{ registry_ip }}"
@@ -136,6 +141,10 @@ show-config:
 deploy target="host":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ "{{ target }}" = "opnsense" ]; then
+        echo "ERROR: opnsense는 호스트에서만 관리됩니다. 'just deploy host'를 사용하세요." >&2
+        exit 1
+    fi
     if [ "{{ target }}" = "host" ]; then
         on_target="@host"
     elif [ "{{ target }}" = "vms" ]; then
@@ -191,7 +200,7 @@ vm-restart-all:
     #!/usr/bin/env bash
     set -e
     # 쉼표 없이 공백으로 구분된 VM 리스트
-    VMS="vault jenkins registry k8s-master k8s-worker-1 k8s-worker-2"
+    VMS="{{ microvm_list }}"
     echo "🟢 Restarting all MicroVMs on {{ target }}..."
     # 1. 모든 서비스를 동시에 재시작 명령 (systemd가 병렬로 처리함)
     for vm in $VMS; do

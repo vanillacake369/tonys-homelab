@@ -52,6 +52,9 @@
     };
 
     # Backward compatibility: expose as homelabConstants
+    # TODO : Remove redundant layer / verbose middleware modules
+    # Rather, perfer direct mapping between domains and adapters
+    # IF POSSIBLE USE INTERFACE, BUT AFIAK, NIX DOES NOT PROVIDE ANY ABSTACCT NOR INTERFACE FOR SUCH MODULE
     homelabConstants = {
       networks = domains.network;
       vms = domains.vms.definitions;
@@ -70,7 +73,7 @@
     };
 
     # Profiles: easy access to domain-based configurations
-    profiles = import ./lib/profiles.nix { inherit pkgs lib; };
+    profiles = import ./lib/profiles.nix {inherit pkgs lib;};
 
     # 레포지토리 루트 경로
     baseDir = ./.;
@@ -79,9 +82,11 @@
     # All adapters are in lib/adapters/
 
     # 모듈에서 사용할 추가 인자 구성
-    specialArgs = import ./lib/adapters/special-args.nix {inherit inputs homelabConstants;} // {
-      inherit domains profiles;
-    };
+    specialArgs =
+      import ./lib/adapters/special-args.nix {inherit inputs homelabConstants;}
+      // {
+        inherit domains profiles;
+      };
 
     # Home Manager 공용 모듈 생성기
     mkHomeManager = import ./lib/adapters/home-manager-module.nix {

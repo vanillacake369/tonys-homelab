@@ -17,10 +17,17 @@
     {nixpkgs.config.allowUnfree = true;}
   ];
 
+  # DEPLOY_TARGET 환경변수로 targetHost override 가능
+  # LAN/Tailscale 동적 전환을 위해 justfile에서 주입
+  deployTargetOverride = builtins.getEnv "DEPLOY_TARGET";
+
   # 물리 호스트 Colmena 노드 생성 (homelabConstants.hosts에서 동적 생성)
   hostHive = lib.mapAttrs (name: hostInfo: {
     deployment = {
-      targetHost = hostInfo.deployment.targetHost;
+      targetHost =
+        if deployTargetOverride != ""
+        then deployTargetOverride
+        else hostInfo.deployment.targetHost;
       targetUser = hostInfo.deployment.targetUser;
       buildOnTarget = hostInfo.deployment.buildOnTarget or true;
       tags = hostInfo.deployment.tags or ["physical"];

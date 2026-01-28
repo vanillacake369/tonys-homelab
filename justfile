@@ -1,20 +1,23 @@
 # Tony's Homelab - Justfile
 # Development and Production deployment recipes
-# Variables dynamically evaluated from Nix constants
-# Single source of truth: lib/homelab-constants.nix and flake.nix
+# Variables dynamically evaluated from Nix data layer
+# Single source of truth: lib/data/*.nix
+
+# Helper: import data from flake
+_data := 'let data = import ./lib/data; in'
 
 ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
-deploy_user := `nix eval --impure --raw .#homelabConstants.hosts.homelab.deployment.targetUser 2>/dev/null`
+deploy_user := `nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.definitions.homelab.deployment.targetUser'`
 
-# Host/VM lists from homelabConstants (SSOT)
-default_host := `nix eval --impure --raw .#homelabConstants.defaultHost`
-host_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.hosts)'`
-vm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.vms)'`
-vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (map (vm: "vm-" + vm) (builtins.attrNames constants.vms))'`
+# Host/VM lists from data layer (SSOT)
+default_host := `nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.default'`
+host_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " (builtins.attrNames data.hosts.definitions)'`
+vm_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " data.vms.order'`
+vm_tag_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " data.vms.tagList'`
 target := ```
-  lan_ip=$(nix eval --impure --raw .#homelabConstants.networks.wan.host 2>/dev/null)
-  ts_ip=$(nix eval --impure --raw .#homelabConstants.networks.tailscale.host 2>/dev/null)
-  user=$(nix eval --impure --raw .#homelabConstants.hosts.homelab.deployment.targetUser 2>/dev/null)
+  lan_ip=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.host')
+  ts_ip=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.tailscale.host')
+  user=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.definitions.homelab.deployment.targetUser')
 
   # 1) LAN: direct SSH (fastest, fewer hops)
   if [ -n "$lan_ip" ] && ssh -o ConnectTimeout=2 -o BatchMode=yes "${user}@${lan_ip}" true 2>/dev/null; then
@@ -86,7 +89,7 @@ _vm_ssh ip:
     ssh -J {{ deploy_user }}@{{ target }} root@{{ ip }}
 
 _vm_ip vm:
-    @nix eval --impure --raw '.#homelabConstants.vms."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
+    @nix eval --impure --raw --expr 'let data = import ./lib/data; in data.vms.definitions."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
 
 # Build configuration locally (dry-run)
 # Usage:
@@ -140,17 +143,17 @@ show-config:
     set -euo pipefail
     echo "=== SSH Connection ==="
     echo "Detected Host: {{ target }}"
-    echo "WAN IP:        $(nix eval --raw .#homelabConstants.networks.wan.host)"
+    echo "WAN IP:        $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.host')"
     echo "Source:        ~/.ssh/config (auto-detected)"
     echo ""
     echo "=== Network Configuration ==="
-    echo "WAN Network:   $(nix eval --raw .#homelabConstants.networks.wan.network)"
-    echo "WAN Gateway:   $(nix eval --raw .#homelabConstants.networks.wan.gateway)"
+    echo "WAN Network:   $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.network')"
+    echo "WAN Gateway:   $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.gateway')"
     echo ""
     echo "=== VM IP Addresses ==="
     for vm in {{ vm_list }}; do
         ip=$(just _vm_ip "$vm")
-        vlan=$(nix eval --impure --raw ".#homelabConstants.vms.\"$vm\".vlan")
+        vlan=$(nix eval --impure --raw --expr "let data = import ./lib/data; in data.vms.definitions.\"$vm\".vlan")
         printf "%-20s %s (VLAN: %s)\n" "$vm:" "$ip" "$vlan"
     done
 
@@ -304,12 +307,12 @@ vm-setup-storage:
     #!/usr/bin/env bash
     set -euo pipefail
     storage_paths=$(nix eval --impure --raw --expr '
-      let constants = (builtins.getFlake (toString ./.)).homelabConstants;
+      let data = import ./lib/data;
       in builtins.concatStringsSep " " (
         builtins.filter (x: x != "")
           (builtins.attrValues (builtins.mapAttrs
             (name: vm: vm.storage.source or "")
-            constants.vms))
+            data.vms.definitions))
       )
     ')
     ssh {{ deploy_user }}@{{ target }} "

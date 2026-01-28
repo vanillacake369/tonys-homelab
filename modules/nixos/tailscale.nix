@@ -5,6 +5,9 @@
 }: let
   clientSecret = config.sops.secrets."tailscale/clientSecret".path;
 in {
+  # Exit Node를 위한 IPv6 포워딩 활성화
+  boot.kernel.sysctl."net.ipv6.conf.all.forwarding" = 1;
+
   # Tailscale 패키지 설치
   environment.systemPackages = [pkgs.tailscale];
 
@@ -15,6 +18,7 @@ in {
     extraSetFlags = [
       "--ssh"
       "--netfilter-mode=nodivert"
+      "--advertise-exit-node"
     ];
   };
 
@@ -88,7 +92,7 @@ in {
 
       # 인증 실행
       log "Connecting to Tailscale..."
-      if ! tailscale up --authkey="$SECRET" --ssh --netfilter-mode=nodivert 2>&1; then
+      if ! tailscale up --authkey="$SECRET" --ssh --netfilter-mode=nodivert --advertise-exit-node 2>&1; then
         log "ERROR: Failed to connect to Tailscale"
         exit 1
       fi

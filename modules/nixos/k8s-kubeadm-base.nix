@@ -11,12 +11,33 @@
 }: {
   # ============================================================
   # 커널 모듈 및 sysctl 설정
+  # MicroVM은 호스트 커널을 공유하므로 boot.kernelModules가 동작하지 않을 수 있음
+  # systemd oneshot 서비스로 런타임에 모듈 로드 및 sysctl 적용
   # ============================================================
   boot.kernelModules = ["overlay" "br_netfilter"];
   boot.kernel.sysctl = {
     "net.bridge.bridge-nf-call-iptables" = 1;
     "net.bridge.bridge-nf-call-ip6tables" = 1;
     "net.ipv4.ip_forward" = 1;
+  };
+
+  # MicroVM 환경에서 커널 모듈이 부팅 시 로드되지 않는 경우 대비
+  systemd.services.k8s-kernel-modules = {
+    description = "Load kernel modules for Kubernetes";
+    before = ["kubelet.service" "containerd.service"];
+    wantedBy = ["multi-user.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "k8s-load-modules" ''
+        ${pkgs.kmod}/bin/modprobe overlay
+        ${pkgs.kmod}/bin/modprobe br_netfilter
+        # sysctl 적용 (br_netfilter 로드 후에야 경로가 존재)
+        echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
+        echo 1 > /proc/sys/net/bridge/bridge-nf-call-ip6tables
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+      '';
+    };
   };
 
   # ============================================================
@@ -42,8 +63,8 @@
   # ============================================================
   systemd.services.kubelet = {
     description = "Kubernetes Kubelet";
-    after = ["containerd.service" "network-online.target"];
-    wants = ["containerd.service" "network-online.target"];
+    after = ["containerd.service" "network-online.target" "k8s-kernel-modules.service"];
+    wants = ["containerd.service" "network-online.target" "k8s-kernel-modules.service"];
     wantedBy = ["multi-user.target"];
 
     # kubeadm의 환경 파일 로드 (있는 경우)

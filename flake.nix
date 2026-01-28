@@ -75,18 +75,21 @@
     # 레포지토리 루트 경로
     baseDir = ./.;
 
+    # Adapters: transform domains into platform-specific configurations
+    # All adapters are in lib/adapters/
+
     # 모듈에서 사용할 추가 인자 구성
-    specialArgs = import ./lib/mk-special-args.nix {inherit inputs homelabConstants;} // {
+    specialArgs = import ./lib/adapters/special-args.nix {inherit inputs homelabConstants;} // {
       inherit domains profiles;
     };
 
     # Home Manager 공용 모듈 생성기
-    mkHomeManager = import ./lib/mk-home-manager.nix {
+    mkHomeManager = import ./lib/adapters/home-manager-module.nix {
       inherit inputs homelabConstants specialArgs;
     };
 
     # MicroVM 구성 모듈 생성기
-    mkMicroVMs = import ./lib/mk-microvms.nix {
+    mkMicroVMs = import ./lib/adapters/microvms.nix {
       inherit lib homelabConstants specialArgs baseDir pkgs;
     };
 
@@ -95,7 +98,7 @@
       mainSystem,
       hostModules,
     }:
-      import ./lib/mk-colmena.nix {
+      import ./lib/adapters/colmena.nix {
         inherit lib inputs homelabConstants specialArgs mainSystem hostModules baseDir;
       };
 

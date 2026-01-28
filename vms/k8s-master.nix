@@ -1,21 +1,24 @@
-# Kubernetes Master Node VM
+# Kubernetes Master Node VM (kubeadm 기반)
 # VLAN 20 (Services)
+#
+# 초기화 절차:
+# 1. VM 배포 후 SSH 접속
+# 2. kubeadm init 실행 (아래 명령어 참고)
+# 3. CNI (Flannel) 설치
+# 4. join 토큰 생성 후 worker 노드에서 join
 {
   pkgs,
   homelabConstants,
-  vmSecretsPath,
   ...
 }: let
-  clusterJoinToken = "${vmSecretsPath}/k8s/joinToken";
   vmInfo = homelabConstants.vms.k8s-master;
   vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
 in {
   imports = [
-    ../modules/nixos/k8s-base.nix
+    ../modules/nixos/k8s-kubeadm-base.nix
   ];
 
   # User configuration
-  # Password is managed via sops in mk-microvms.nix (mkVmCommonModule)
   users.mutableUsers = false;
 
   microvm = {
@@ -52,36 +55,17 @@ in {
     linkConfig.RequiredForOnline = "no";
   };
 
-  # Kubernetes master configuration
-  services.kubernetes = {
-    roles = ["master"];
-    masterAddress = vmInfo.ip;
-    apiserverAddress = "https://${vmInfo.ip}:${toString vmInfo.ports.api}";
-    flannel.enable = true;
-    addons.dns.enable = true;
-    easyCerts = true;
-    apiserver = {
-      enable = true;
-      securePort = vmInfo.ports.api;
-      advertiseAddress = vmInfo.ip;
-      tokenAuthFile = clusterJoinToken;
-    };
-    scheduler.enable = true;
-    controllerManager.enable = true;
-  };
-
   # Master node firewall configuration
   networking.firewall = {
     enable = true;
     allowedTCPPorts = [
-      8888 # cfssl
-      10250 # kubelet API
-      10255 # kubelet read-only
-      6443 # API server
-      2379 # etcd client
-      2380 # etcd peer
-      10251 # scheduler (deprecated)
-      10252 # controller-manager
+      vmInfo.ports.ssh # 22
+      vmInfo.ports.api # 6443 - API server
+      vmInfo.ports.etcdClient # 2379 - etcd client
+      vmInfo.ports.etcdPeer # 2380 - etcd peer
+      vmInfo.ports.kubelet # 10250 - kubelet API
+      vmInfo.ports.scheduler # 10251 - scheduler (deprecated but still used)
+      vmInfo.ports.controller # 10252 - controller-manager
       10257 # controller-manager secure
       10259 # scheduler secure
     ];
@@ -89,17 +73,49 @@ in {
       {
         from = 30000;
         to = 32767;
-      }
+      } # NodePort range
+    ];
+    allowedUDPPorts = [
+      8472 # Flannel VXLAN
     ];
   };
 
-  # Set KUBECONFIG for root user
-  environment.variables.KUBECONFIG = "/etc/kubernetes/cluster-admin.kubeconfig";
+  # KUBECONFIG 환경변수 (kubeadm init 후 사용)
+  environment.variables.KUBECONFIG = "/etc/kubernetes/admin.conf";
 
-  # Master-specific packages
+  # Master 전용 패키지
   environment.systemPackages = with pkgs; [
     etcd
   ];
 
+  # SSH 서비스
+  services.openssh = {
+    enable = true;
+    settings = {
+      PermitRootLogin = "prohibit-password";
+      PasswordAuthentication = false;
+    };
+  };
+
   system.stateVersion = homelabConstants.common.stateVersion;
 }
+
+# =============================================================
+# kubeadm init 명령어 (VM 배포 후 수동 실행)
+# =============================================================
+#
+# sudo kubeadm init \
+#   --apiserver-advertise-address=10.0.20.10 \
+#   --pod-network-cidr=10.244.0.0/16 \
+#   --service-cidr=10.96.0.0/12 \
+#   --node-name=k8s-master
+#
+# mkdir -p $HOME/.kube
+# sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+# sudo chown $(id -u):$(id -g) $HOME/.kube/config
+#
+# # Flannel CNI 설치
+# kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+#
+# # join 토큰 생성
+# kubeadm token create --print-join-command

@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+    paths: ["**.nix", "flake.lock", ".github/**"]
+  push:
+    branches: [main]
+    paths: ["**.nix", "flake.lock", ".github/**"]
+  merge_group:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+      - uses: ./.github/actions/nix-setup
+        with:
+          git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
+      - run: nix flake check --impure --no-build
+      - env:
+          MICROVM_TARGETS: none
+        run: nix build .#nixosConfigurations.homelab.config.system.build.toplevel --impure --dry-run

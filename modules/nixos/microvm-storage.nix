@@ -26,6 +26,9 @@
   # SSH host key directories for each VM
   sshHostKeyDirs = map (name: "/var/lib/microvms/${name}/ssh") vmNames;
 
+  # 홈 디렉토리 (root) - .p10k.zsh, .zsh_history 등 영속화
+  homeDirs = map (name: "/var/lib/microvms/${name}/home/root") vmNames;
+
   # K8s 노드 영구 저장 디렉토리 (kubeadm 기반)
   k8sConfigDirs = map (name: "/var/lib/microvms/${name}/kubernetes") k8sNodeNames;
   k8sEtcdDir = "/var/lib/microvms/k8s-master/etcd";
@@ -35,6 +38,8 @@ in {
     map (path: "d ${path} 0755 microvm kvm - -") storageDirs
     # SSH host key directories (persistent across VM restarts)
     ++ map (path: "d ${path} 0700 microvm kvm - -") sshHostKeyDirs
+    # 홈 디렉토리 (root 사용자)
+    ++ map (path: "d ${path} 0700 root root - -") homeDirs
     # K8s 노드 영구 저장 디렉토리 (kubeadm)
     ++ map (path: "d ${path} 0755 microvm kvm - -") k8sConfigDirs
     ++ [

@@ -211,6 +211,26 @@
     ];
   };
 
+  # 홈 디렉토리 영구 저장 모듈 (.p10k.zsh, .zsh_history 등)
+  mkHomeStorageModule = name: {lib, ...}: let
+    baseDir = "/var/lib/microvms/${name}";
+  in {
+    microvm.shares = lib.mkAfter [
+      {
+        source = "${baseDir}/home/root";
+        mountPoint = "/root";
+        tag = "home-root";
+        proto = "virtiofs";
+      }
+    ];
+
+    fileSystems."/root" = {
+      device = "home-root";
+      fsType = "virtiofs";
+      neededForBoot = true;
+    };
+  };
+
 in {
   config = {
     # MicroVM 호스트 기능 활성화
@@ -229,6 +249,7 @@ in {
               (mkStorageModule name)
               (mkK8sStorageModule name)
               (mkSshHostKeyModule name)
+              (mkHomeStorageModule name)
             ];
           };
           specialArgs = specialArgs // {microvmTarget = name;};

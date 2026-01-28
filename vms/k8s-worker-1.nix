@@ -1,17 +1,20 @@
-# Kubernetes Worker 1 VM (with GPU passthrough)
+# Kubernetes Worker 1 VM (with GPU passthrough capability)
 # VLAN 20 (Services)
 {
-  pkgs,
   homelabConstants,
   vmSecretsPath,
-  lib,
+  pkgs,
   ...
 }: let
-  # Secrets are shared from host via virtiofs
   clusterJoinToken = "${vmSecretsPath}/k8s/joinToken";
   vmInfo = homelabConstants.vms.k8s-worker-1;
   vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
+  masterInfo = homelabConstants.vms.k8s-master;
 in {
+  imports = [
+    ../modules/nixos/k8s-base.nix
+  ];
+
   # Auto-join service for Kubernetes cluster
   systemd.services.k8s-auto-join = {
     description = "Automatically join the Kubernetes cluster";
@@ -37,21 +40,8 @@ in {
   };
 
   # User configuration
-  users = {
-    mutableUsers = false;
-    users.root = {
-      # TEMPORARY: 빈 비밀번호 허용 (개발 전용)
-      initialHashedPassword = "";
-      hashedPassword = "";
-      # TODO : 어떻게 하면 이걸 자동으로
-      # homelab 에서 가져오도록
-      # 할 수 있을까?
-      # (아래는 서버 구성 후 직접 가져온것 )
-      openssh.authorizedKeys.keys = [
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICgKsYPtQJYXLQweE0n3bRo1wkNhsNIjbBaA+D1R0/fc limjihoon@homelab"
-      ];
-    };
-  };
+  # Password is managed via sops in mk-microvms.nix (mkVmCommonModule)
+  users.mutableUsers = false;
 
   microvm = {
     hypervisor = homelabConstants.common.hypervisor;
@@ -59,9 +49,7 @@ in {
     mem = vmInfo.mem;
 
     # Note: k8s-worker-1 does not use vsock (GPU passthrough configuration)
-    # GPU PCI passthrough configuration
-    # NOTE: Adjust PCI address after running `lspci` on host
-    # Example: lspci | grep VGA
+    # GPU PCI passthrough configuration (uncomment and adjust after `lspci | grep VGA`)
     # qemu.extraArgs = [
     #   "-device" "vfio-pci,host=00:02.0"  # Intel iGPU example
     # ];
@@ -75,35 +63,34 @@ in {
     ];
   };
 
-  # Network configuration
+  # Network configuration (systemd-networkd)
   networking = {
     hostName = vmInfo.hostname;
     useDHCP = false;
-    interfaces.eth0 = {
-      useDHCP = false;
-      ipv4.addresses = [
-        {
-          address = vmInfo.ip;
-          prefixLength = vlan.prefixLength;
-        }
-      ];
-    };
-    defaultGateway = {
-      address = vlan.gateway;
-      interface = "eth0";
-    };
     nameservers = homelabConstants.networks.dns;
+  };
+
+  systemd.network.networks."10-lan" = {
+    matchConfig.Type = "ether";
+    address = ["${vmInfo.ip}/${toString vlan.prefixLength}"];
+    gateway = [vlan.gateway];
+    dns = homelabConstants.networks.dns;
+    networkConfig = {
+      IPv4Forwarding = true;
+      IPv6Forwarding = false;
+    };
+    linkConfig.RequiredForOnline = "no";
   };
 
   # Kubernetes worker configuration
   services.kubernetes = {
     roles = ["node"];
-    masterAddress = homelabConstants.vms.k8s-master.ip;
-    apiserverAddress = "https://${homelabConstants.vms.k8s-master.ip}:${toString homelabConstants.vms.k8s-master.ports.api}";
+    masterAddress = masterInfo.ip;
+    apiserverAddress = "https://${masterInfo.ip}:${toString masterInfo.ports.api}";
     easyCerts = true;
   };
 
-  # Firewall configuration
+  # Worker node firewall configuration
   networking.firewall = {
     enable = true;
     allowedTCPPorts = [
@@ -117,69 +104,6 @@ in {
       }
     ];
   };
-
-  # 모든 노드 설정 파일에 공통 추가
-  networking.hosts = {
-    "${homelabConstants.vms.k8s-master.ip}" = [homelabConstants.vms.k8s-master.hostname];
-    "${homelabConstants.vms.k8s-worker-1.ip}" = [homelabConstants.vms.k8s-worker-1.hostname];
-    "${homelabConstants.vms.k8s-worker-2.ip}" = [homelabConstants.vms.k8s-worker-2.hostname];
-  };
-
-  # NOTE : 테스트를 위한 설정
-  # SSH service
-  services.openssh = {
-    enable = true;
-    settings = {
-      PermitRootLogin = "yes";
-      PasswordAuthentication = true;
-    };
-    hostKeys = [
-      {
-        path = "/var/lib/ssh/ssh_host_ed25519_key";
-        type = "ed25519";
-      }
-    ];
-  };
-
-  # Container runtime and tools
-  environment.systemPackages = with pkgs; [
-    kubectl
-    kubernetes
-    curl
-    jq
-    bind
-  ];
-
-  # ============================================================
-  # 1. 커널 모듈 및 sysctl 설정
-  # ============================================================
-  boot.kernelModules = ["overlay" "br_netfilter"];
-  boot.kernel.sysctl = {
-    "net.bridge.bridge-nf-call-iptables" = lib.mkForce 1;
-    "net.bridge.bridge-nf-call-ip6tables" = lib.mkForce 1;
-    "net.ipv4.ip_forward" = lib.mkForce 1;
-  };
-
-  # 부팅 시 커널 모듈 확실히 로드
-  systemd.services.k8s-kernel-modules = {
-    description = "Load Kubernetes required kernel modules";
-    before = ["kubelet.service" "containerd.service"];
-    wantedBy = ["multi-user.target"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      ${pkgs.kmod}/bin/modprobe overlay
-      ${pkgs.kmod}/bin/modprobe br_netfilter
-      ${pkgs.procps}/bin/sysctl -w net.bridge.bridge-nf-call-iptables=1
-      ${pkgs.procps}/bin/sysctl -w net.bridge.bridge-nf-call-ip6tables=1
-      ${pkgs.procps}/bin/sysctl -w net.ipv4.ip_forward=1
-    '';
-  };
-
-  # Enable container runtime
-  virtualisation.containerd.enable = true;
 
   system.stateVersion = homelabConstants.common.stateVersion;
 }

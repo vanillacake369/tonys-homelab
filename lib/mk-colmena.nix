@@ -64,6 +64,9 @@
           ];
         })
       ];
-  }) (lib.filterAttrs (_: vmInfo: vmInfo.deployment.colmena or true) homelabConstants.vms);
+  })
+  # Filter VMs for Colmena deployment
+  # VMs are included by default unless deployment.colmena = false
+  (lib.filterAttrs (_: vmInfo: vmInfo.deployment.colmena or true) homelabConstants.vms);
 in
   inputs.colmena.lib.makeHive (baseHive // vmHive)

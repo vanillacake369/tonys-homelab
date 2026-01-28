@@ -52,8 +52,10 @@ jobs:
         run: nix flake check --impure --no-build
       - name: Dry Build
         if: inputs.mode == 'ci'
+        env:
+          MICROVM_TARGETS: none
         run: |
-          nix build .#nixosConfigurations.homelabCi.config.system.build.toplevel \
+          nix build .#nixosConfigurations.homelab.config.system.build.toplevel \
             --impure \
             --dry-run
       - name: Tailscale Connect

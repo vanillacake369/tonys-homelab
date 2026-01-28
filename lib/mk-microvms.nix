@@ -17,11 +17,11 @@
     else builtins.filter (name: builtins.elem name specialArgs.microvmTargets) allTargets;
 
   # VM별 필요한 secrets 정의 (principle of least privilege)
-  # 모든 VM은 rootPassword 시크릿이 필요 (파일 경로: /run/secrets/rootPassword)
+  # sops.nix의 secret 이름과 일치해야 함 (예: "k8s/joinToken", "rootPassword")
   vmSecrets = {
-    k8s-master = ["k8s" "rootPassword"];
-    k8s-worker-1 = ["k8s" "rootPassword"];
-    k8s-worker-2 = ["k8s" "rootPassword"];
+    k8s-master = ["k8s/joinToken" "rootPassword"];
+    k8s-worker-1 = ["k8s/joinToken" "rootPassword"];
+    k8s-worker-2 = ["k8s/joinToken" "rootPassword"];
     vault = ["rootPassword"];
     jenkins = ["rootPassword"];
     registry = ["rootPassword"];
@@ -31,7 +31,7 @@
   vmSpecialArgs =
     specialArgs
     // {
-      hostSshKeys = hostConfig.users.users.${homelabConstants.host.username}.openssh.authorizedKeys.keys;
+      hostSshKeys = hostConfig.users.users.${homelabConstants.hosts.${homelabConstants.defaultHost}.username}.openssh.authorizedKeys.keys;
     };
 
   # VM 이름 → 설정 파일 경로 매핑
@@ -79,19 +79,21 @@
   };
 
   # Secrets 공유 모듈 생성
+  # secret 이름에 "/" 포함 시 tag에서 "-"로 치환 (virtiofs tag 규칙)
   mkSecretsModule = name: let
     secretsForVm = vmSecrets.${name} or [];
     vmSecretsPath = specialArgs.vmSecretsPath;
+    mkTag = secret: "secret-${builtins.replaceStrings ["/"] ["-"] secret}";
     secretShares = map (secret: {
       source = "/run/secrets/${secret}";
       mountPoint = "${vmSecretsPath}/${secret}";
-      tag = "secret-${secret}";
+      tag = mkTag secret;
       proto = "virtiofs";
     }) secretsForVm;
     secretMounts = lib.listToAttrs (map (secret: {
       name = "${vmSecretsPath}/${secret}";
       value = {
-        device = "secret-${secret}";
+        device = mkTag secret;
         fsType = "virtiofs";
         options = ["ro"];
       };

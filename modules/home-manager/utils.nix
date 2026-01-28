@@ -38,5 +38,6 @@
     ngrok
     bind
     lsof
+    pciutils
   ];
 }

@@ -2,42 +2,24 @@
 # VLAN 20 (Services)
 {
   homelabConstants,
-  vmSecretsPath,
-  pkgs,
+  lib,
   ...
 }: let
-  clusterJoinToken = "${vmSecretsPath}/k8s/joinToken";
   vmInfo = homelabConstants.vms.k8s-worker-1;
   vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
   masterInfo = homelabConstants.vms.k8s-master;
+
+  # GPU passthrough 설정
+  gpuEnabled = vmInfo.gpu.enable or false;
+  gpuPciAddress = vmInfo.gpu.pciAddress or "";
 in {
   imports = [
     ../modules/nixos/k8s-base.nix
   ];
 
-  # Auto-join service for Kubernetes cluster
-  systemd.services.k8s-auto-join = {
-    description = "Automatically join the Kubernetes cluster";
-    after = ["network-online.target"];
-    wants = ["network-online.target"];
-    wantedBy = ["multi-user.target"];
-
-    # Skip if already joined (kubelet cert exists)
-    unitConfig.ConditionPathExists = "!/var/lib/kubernetes/secrets/kubelet.key";
-
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-
-    script = ''
-      # Extract token from CSV format (first field)
-      JOIN_TOKEN=$(cat ${clusterJoinToken} | cut -d',' -f1)
-
-      echo "Starting auto-join with token..."
-      echo "$JOIN_TOKEN" | ${pkgs.kubernetes}/bin/nixos-kubernetes-node-join
-    '';
-  };
+  # Kubernetes kubelet configuration with token authentication
+  # Token is passed via services.kubernetes.kubelet.kubeconfig
+  services.kubernetes.kubelet.kubeconfig.server = "https://${masterInfo.ip}:${toString masterInfo.ports.api}";
 
   # User configuration
   # Password is managed via sops in mk-microvms.nix (mkVmCommonModule)
@@ -48,11 +30,11 @@ in {
     vcpu = vmInfo.vcpu;
     mem = vmInfo.mem;
 
-    # Note: k8s-worker-1 does not use vsock (GPU passthrough configuration)
-    # GPU PCI passthrough configuration (uncomment and adjust after `lspci | grep VGA`)
-    # qemu.extraArgs = [
-    #   "-device" "vfio-pci,host=00:02.0"  # Intel iGPU example
-    # ];
+    # GPU PCI passthrough (enabled via homelabConstants)
+    qemu.extraArgs = lib.optionals gpuEnabled [
+      "-device"
+      "vfio-pci,host=${gpuPciAddress}"
+    ];
 
     interfaces = [
       {

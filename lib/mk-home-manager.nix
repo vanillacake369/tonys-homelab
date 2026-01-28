@@ -6,7 +6,7 @@
 }:
 {
   homeConfigPath,
-  username ? homelabConstants.host.username,
+  username ? homelabConstants.hosts.${homelabConstants.defaultHost}.username,
   extraSpecialArgs ? {},
   useGlobalPkgs ? true,
   useUserPackages ? true,

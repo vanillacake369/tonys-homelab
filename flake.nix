@@ -40,7 +40,7 @@
     # nixpkgs의 lib 유틸리티 사용
     inherit (nixpkgs) lib;
     pkgs = import nixpkgs {
-      system = homelabConstants.host.platform;
+      system = homelabConstants.common.platform;
       config.allowUnfree = true;
     };
 
@@ -79,7 +79,7 @@
     forAllSystems = f: lib.genAttrs supportedSystems f;
 
     # 메인 배포 대상 시스템
-    mainSystem = homelabConstants.host.platform;
+    mainSystem = homelabConstants.common.platform;
 
     # 호스트 모듈 묶음
     hostModules = [
@@ -101,23 +101,21 @@
     # Nix 포매터 지정 (alejandra)
     formatter = forAllSystems (sys: inputs.nixpkgs.legacyPackages.${sys}.alejandra);
 
-    # 로컬 빌드용 NixOS 구성 (nixos-rebuild)
+    # NixOS 구성
+    # - VM 빌드 제어: MICROVM_TARGETS 환경변수 사용
+    #   - "all" 또는 미설정: 모든 VM 빌드
+    #   - "none": VM 빌드 스킵 (CI용)
+    #   - "vm1 vm2": 특정 VM만 빌드
+    # 예: MICROVM_TARGETS=none nix build .#nixosConfigurations.homelab.config.system.build.toplevel
     nixosConfigurations.homelab = lib.nixosSystem {
       system = mainSystem;
       inherit specialArgs;
       modules = hostModules;
     };
 
-    # CI 빌드용 NixOS 구성 (microvmTargets = [])
-    nixosConfigurations.homelabCi = lib.nixosSystem {
-      system = mainSystem;
-      specialArgs = specialArgs // {microvmTargets = [];};
-      modules = hostModules;
-    };
-
     # 원격 배포용 Colmena 하이브
-    # colmena는 표준 flake output으로 인식됨
-    colmena = mkColmenaHive {inherit mainSystem hostModules;};
+    # colmena CLI는 'colmena' 또는 'colmenaHive' output을 찾음
+    colmenaHive = mkColmenaHive {inherit mainSystem hostModules;};
 
     # 외부 참조용 상수 노출 (justfile 호환)
     # warning: unknown flake output 'homelabConstants' 는 무해함

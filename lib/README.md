@@ -225,6 +225,86 @@ vms = {
 2. `modules/nixos/network.nix`에 VLAN 인터페이스 설정 추가
 3. 브릿지 VLAN 필터링 규칙 추가
 
+## VM 스키마
+
+```mermaid
+erDiagram
+    VM {
+        string vlan "management | services"
+        string ip "10.0.x.x"
+        string mac "02:00:00:..."
+        int vsockCid "100-199 (optional)"
+        int vcpu "2-8"
+        int mem "2047-16384 MB"
+        string tapId "vm-name"
+        string hostname "hostname"
+    }
+
+    VM ||--|| Deployment : has
+    Deployment {
+        string user "root"
+        array tags "vm-name, k8s, etc"
+        bool colmena "true (default)"
+    }
+
+    VM ||--o| Ports : has
+    Ports {
+        int ssh "22"
+        int api "service-specific"
+    }
+
+    VM ||--o| Storage : has
+    Storage {
+        string source "/var/lib/microvms/..."
+        string mountPoint "/var/lib/..."
+        string tag "storage-tag"
+    }
+
+    VM ||--o| GPU : has
+    GPU {
+        bool enable "false (default)"
+        string pciAddress "65:00.0"
+    }
+```
+
+## lib/ 모듈 의존성
+
+```mermaid
+flowchart TB
+    subgraph flake["flake.nix"]
+        direction TB
+        Constants["homelab-constants.nix"]
+        SpecialArgs["mk-special-args.nix"]
+        HomeManager["mk-home-manager.nix"]
+        MicroVMs["mk-microvms.nix"]
+        Colmena["mk-colmena.nix"]
+    end
+
+    Constants --> SpecialArgs
+    Constants --> MicroVMs
+    Constants --> Colmena
+
+    SpecialArgs --> HomeManager
+    SpecialArgs --> MicroVMs
+    SpecialArgs --> Colmena
+
+    subgraph outputs["Flake Outputs"]
+        NixOS["nixosConfigurations"]
+        ColmenaHive["colmena"]
+    end
+
+    HomeManager --> NixOS
+    MicroVMs --> NixOS
+    Colmena --> ColmenaHive
+
+    subgraph env["Environment Variables"]
+        SSH["SSH_PUB_KEY"]
+        Targets["MICROVM_TARGETS"]
+    end
+
+    env --> SpecialArgs
+```
+
 ## 설계 원칙
 
 1. **Single Source of Truth**: 모든 하드코딩 값은 이 파일에만 존재

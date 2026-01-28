@@ -1,6 +1,31 @@
 # Disko configuration for bare-metal server installation
 # This replaces Proxmox with NixOS on the physical server
 # WARNING: This will ERASE ALL DATA on the target disk
+#
+# ============================================================================
+# LVM Thin Pool Overcommit Strategy
+# ============================================================================
+# Physical Disk: ~900GB NVMe (1GB ESP + 16GB swap + ~880GB LVM)
+#
+# Tier 1 (Thick): root=200G, vault=20G → 220GB guaranteed
+# Tier 2 (Thin):  vm_thinpool=380G → logical vms=800G (2.1x overcommit)
+# Tier 3 (Thin):  data_thinpool=300G → logical data=600G (2x overcommit)
+#
+# Overcommit Rationale:
+# - VMs rarely use 100% of allocated space simultaneously
+# - Thin provisioning allows efficient space sharing
+# - 2x overcommit is conservative for homelab workloads
+# - Auto-extend at 80% usage provides safety margin
+#
+# Monitoring Commands:
+#   lvs -o+lv_size,data_percent homelab_vg  # Check thin pool usage
+#   journalctl -u lvm2-monitor             # Check auto-extend events
+#   df -h /var/lib/libvirt/images /data    # Check filesystem usage
+#
+# Alert Thresholds:
+# - data_percent > 80%: Auto-extend triggers (20% increase)
+# - data_percent > 95%: Manual intervention required
+# ============================================================================
 _: {
   # ==========================================
   # 1. Disko 설정 (discard 제거)

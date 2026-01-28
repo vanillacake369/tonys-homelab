@@ -10,27 +10,29 @@
   baseDir,
 }: let
   # VM 공통 모듈 묶음
+  # Note: sops.nix is NOT included here - VMs receive secrets via virtiofs
+  # from the host (see mk-microvms.nix mkSecretsModule)
   vmModules = [
     inputs.microvm.nixosModules.microvm
-    (baseDir + "/modules/nixos/sops.nix")
     {nixpkgs.config.allowUnfree = true;}
   ];
 
-  # 물리 호스트(서버)용 Colmena 노드 정의
-  baseHive = {
-    # 공통 메타 설정
+  # 물리 호스트 Colmena 노드 생성 (homelabConstants.hosts에서 동적 생성)
+  hostHive = lib.mapAttrs (name: hostInfo: {
+    deployment = {
+      targetHost = hostInfo.deployment.targetHost;
+      targetUser = hostInfo.deployment.targetUser;
+      buildOnTarget = hostInfo.deployment.buildOnTarget or true;
+      tags = hostInfo.deployment.tags or ["physical"];
+    };
+    imports = hostModules;
+  }) homelabConstants.hosts;
+
+  # Colmena 메타 설정
+  metaHive = {
     meta = {
       nixpkgs = import inputs.nixpkgs {system = mainSystem;};
       inherit specialArgs;
-    };
-    # 실제 서버 노드 (homelab)
-    homelab = {
-      deployment = with homelabConstants.host.deployment; {
-        inherit targetHost targetUser;
-        buildOnTarget = true;
-        tags = ["physical" "homelab"];
-      };
-      imports = hostModules;
     };
   };
 
@@ -69,4 +71,4 @@
   # VMs are included by default unless deployment.colmena = false
   (lib.filterAttrs (_: vmInfo: vmInfo.deployment.colmena or true) homelabConstants.vms);
 in
-  inputs.colmena.lib.makeHive (baseHive // vmHive)
+  inputs.colmena.lib.makeHive (metaHive // hostHive // vmHive)

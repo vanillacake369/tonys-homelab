@@ -1,17 +1,20 @@
 # Home-manager editor configuration
-{pkgs, ...}: {
-  # Editor packages
-  home.packages = with pkgs; [
-    vim
-  ];
+# Domain-driven: imports editor configuration from lib/domains/editor.nix
+{pkgs, ...}: let
+  # Import editor domain directly
+  editorDomain = import ../../lib/domains/editor.nix;
+in {
+  # Editor packages (vim as fallback)
+  home.packages = with pkgs;
+    (if editorDomain.vim.enable then [vim] else []);
 
-  # Neovim configuration
+  # Neovim configuration from domain
   programs.neovim = {
-    enable = true;
-    defaultEditor = true;
-    viAlias = true;
-    vimAlias = true;
-    vimdiffAlias = true;
+    enable = editorDomain.neovim.enable;
+    defaultEditor = editorDomain.neovim.defaultEditor;
+    viAlias = editorDomain.neovim.viAlias;
+    vimAlias = editorDomain.neovim.vimAlias;
+    vimdiffAlias = editorDomain.neovim.vimdiffAlias;
     plugins = with pkgs.vimPlugins; [LazyVim];
   };
 }

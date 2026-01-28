@@ -29,7 +29,6 @@
     bat
     jq
     moreutils
-    tree
     expect
     bridge-utils
     tcpdump
@@ -38,6 +37,10 @@
     ngrok
     bind
     lsof
-    pciutils
+    dmidecode
+    usbutils
+
+    # AMD GPU 진단 도구
+    amdgpu_top # iGPU 모니터링 및 VBIOS 덤프
   ];
 }

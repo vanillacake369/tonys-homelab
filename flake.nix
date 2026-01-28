@@ -39,19 +39,46 @@
   outputs = {nixpkgs, ...} @ inputs: let
     # nixpkgs의 lib 유틸리티 사용
     inherit (nixpkgs) lib;
+
+    # Domain-driven architecture: pure data from domains
+    domains = {
+      shell = import ./lib/domains/shell.nix;
+      packages = import ./lib/domains/packages.nix;
+      editor = import ./lib/domains/editor.nix;
+      users = import ./lib/domains/users.nix;
+      network = import ./lib/domains/network.nix;
+      vms = import ./lib/domains/vms.nix;
+      hosts = import ./lib/domains/hosts.nix;
+    };
+
+    # Backward compatibility: expose as homelabConstants
+    homelabConstants = {
+      networks = domains.network;
+      vms = domains.vms.definitions;
+      vmOrder = domains.vms.order;
+      microvmList = domains.vms.microvmList;
+      vmTagList = domains.vms.tagList;
+      k8s = domains.vms.k8s;
+      hosts = domains.hosts.definitions;
+      defaultHost = domains.hosts.default;
+      common = domains.hosts.common;
+    };
+
     pkgs = import nixpkgs {
       system = homelabConstants.common.platform;
       config.allowUnfree = true;
     };
 
+    # Profiles: easy access to domain-based configurations
+    profiles = import ./lib/profiles.nix { inherit pkgs lib; };
+
     # 레포지토리 루트 경로
     baseDir = ./.;
 
-    # lib/ 경로의 공통 상수 로딩
-    homelabConstants = import ./lib/homelab-constants.nix;
-
     # 모듈에서 사용할 추가 인자 구성
-    specialArgs = import ./lib/mk-special-args.nix {inherit inputs homelabConstants;};
+    specialArgs = import ./lib/mk-special-args.nix {inherit inputs homelabConstants;} // {
+      inherit domains profiles;
+    };
 
     # Home Manager 공용 모듈 생성기
     mkHomeManager = import ./lib/mk-home-manager.nix {

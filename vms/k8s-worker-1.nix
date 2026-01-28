@@ -1,17 +1,13 @@
-# Kubernetes Worker 1 VM (with GPU passthrough capability)
+# Kubernetes Worker 1 VM
 # VLAN 20 (Services)
+# Note: GPU passthrough disabled - AMD iGPU는 호스트에서 ROCm으로 사용
 {
   homelabConstants,
-  lib,
   ...
 }: let
   vmInfo = homelabConstants.vms.k8s-worker-1;
   vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
   masterInfo = homelabConstants.vms.k8s-master;
-
-  # GPU passthrough 설정
-  gpuEnabled = vmInfo.gpu.enable or false;
-  gpuPciAddress = vmInfo.gpu.pciAddress or "";
 in {
   imports = [
     ../modules/nixos/k8s-base.nix
@@ -29,12 +25,6 @@ in {
     hypervisor = homelabConstants.common.hypervisor;
     vcpu = vmInfo.vcpu;
     mem = vmInfo.mem;
-
-    # GPU PCI passthrough (enabled via homelabConstants)
-    qemu.extraArgs = lib.optionals gpuEnabled [
-      "-device"
-      "vfio-pci,host=${gpuPciAddress}"
-    ];
 
     interfaces = [
       {

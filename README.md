@@ -15,6 +15,7 @@ Proxmox를 대체하며, 모든 설정이 코드로 관리됩니다.
 - AMD ROCm GPU 지원 (Hybrid 구성)
 - sops-nix 암호화 시크릿
 - Colmena 원격 배포
+- Tailscale VPN Exit Node (공공 WiFi 보안 라우팅)
 
 ## 아키텍처
 
@@ -43,7 +44,10 @@ flowchart TB
         end
     end
 
+    Tailscale["Tailscale Exit Node"]
+
     ISP <--> NixOS
+    Tailscale <-->|"VPN 터널"| NixOS
     GPU -.->|"Ollama"| NixOS
 
     Vault -.->|Secrets| K8s
@@ -132,6 +136,35 @@ just deploy k8s-master
 # VM 전체
 just deploy vms
 ```
+
+## Tailscale VPN (Exit Node)
+
+공공 WiFi 등 외부 네트워크에서 홈랩을 경유하여 안전하게 인터넷을 사용할 수 있습니다.
+
+```
+클라이언트 (공공WiFi) → Tailscale 터널 → 홈랩 (Exit Node) → 인터넷
+```
+
+**구성 요소:**
+- `--advertise-exit-node`: 홈랩을 Exit Node로 광고
+- `--netfilter-mode=nodivert`: Bridge/VLAN/NAT 규칙 보호
+- 수동 MASQUERADE: nodivert 환경에서 Exit Node NAT 보장
+
+**사용 방법:**
+
+```bash
+# 클라이언트에서 Exit Node 활성화
+tailscale set --exit-node=<홈랩-Tailscale-IP>
+
+# 확인 (홈랩 공인 IP가 나와야 함)
+curl ifconfig.me
+
+# 해제
+tailscale set --exit-node=
+```
+
+> **참고:** Tailscale Admin Console에서 해당 노드의 Exit Node를 승인해야 합니다.
+> `nodivert` 모드의 상세 배경은 [`modules/nixos/tailscale.nix`](./modules/nixos/tailscale.nix) 주석을 참고하세요.
 
 ## Kubernetes 클러스터
 

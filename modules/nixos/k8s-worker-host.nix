@@ -12,21 +12,17 @@
 {
   pkgs,
   lib,
-  homelabConstants,
+  data,
   ...
 }: let
-  masterInfo = homelabConstants.vms.k8s-master;
+  masterInfo = data.vms.definitions.k8s-master;
 in {
   # ============================================================
   # 커널 모듈 및 sysctl 설정
   # ============================================================
-  # overlay: containerd 스토리지 드라이버용
-  # br_netfilter: 호스트에서는 로드하지 않음 (MicroVM 브릿지와 충돌)
   boot.kernelModules = ["overlay"];
   boot.kernel.sysctl = {
-    # IP 포워딩만 활성화 (K8s pod 네트워크용)
     "net.ipv4.ip_forward" = lib.mkForce 1;
-    # bridge-nf-call-iptables는 설정하지 않음 (MicroVM 브릿지 보호)
   };
 
   # ============================================================
@@ -34,8 +30,8 @@ in {
   # ============================================================
   networking.hosts = lib.mkMerge [
     {"${masterInfo.ip}" = [masterInfo.hostname];}
-    {"${homelabConstants.vms.k8s-worker-1.ip}" = [homelabConstants.vms.k8s-worker-1.hostname];}
-    {"${homelabConstants.vms.k8s-worker-2.ip}" = [homelabConstants.vms.k8s-worker-2.hostname];}
+    {"${data.vms.definitions.k8s-worker-1.ip}" = [data.vms.definitions.k8s-worker-1.hostname];}
+    {"${data.vms.definitions.k8s-worker-2.ip}" = [data.vms.definitions.k8s-worker-2.hostname];}
   ];
 
   # ============================================================
@@ -57,7 +53,6 @@ in {
 
   # ============================================================
   # kubelet 서비스 (systemd 직접 관리)
-  # kubeadm이 /var/lib/kubelet/config.yaml 생성
   # ============================================================
   systemd.services.kubelet = {
     description = "Kubernetes Kubelet";
@@ -65,11 +60,8 @@ in {
     wants = ["containerd.service" "network-online.target"];
     wantedBy = ["multi-user.target"];
 
-    # kubeadm의 환경 파일 로드 (있는 경우)
     serviceConfig = {
       EnvironmentFile = "-/var/lib/kubelet/kubeadm-flags.env";
-      # Note: KUBELET_KUBEADM_ARGS는 빈 값일 수 있으므로 쉘에서 처리
-      # mount, umount 등 시스템 유틸리티가 PATH에 필요
       ExecStart = pkgs.writeShellScript "kubelet-start" ''
         export PATH=${pkgs.util-linux}/bin:${pkgs.e2fsprogs}/bin:${pkgs.kmod}/bin:$PATH
         exec ${pkgs.kubernetes}/bin/kubelet \
@@ -82,7 +74,6 @@ in {
       RestartSec = "10s";
     };
 
-    # kubeadm join 전에는 설정 파일이 없으므로 실패할 수 있음
     unitConfig = {
       ConditionPathExists = "/var/lib/kubelet/config.yaml";
     };

@@ -1,15 +1,15 @@
 # homelab 네트워크를 systemd-networkd로 구성
 # 브리지/VLAN/TAP 설정을 통합 관리
 {
-  homelabConstants,
+  data,
   lib,
   ...
 }: let
   # 네트워크 상수 참조
-  homelabNetwork = homelabConstants.networks;
+  homelabNetwork = data.network;
   externalIf = "vmbr0";
-  vms = homelabConstants.vms;
-  vlans = homelabConstants.networks.vlans;
+  vms = data.vms.definitions;
+  vlans = data.network.vlans;
 
   # VLAN ID 별칭
   mgmtVlanId = vlans.management.id;
@@ -49,7 +49,7 @@
 in {
   # 기본 네트워크 설정
   networking = {
-    hostName = homelabConstants.hosts.${homelabConstants.defaultHost}.hostname;
+    hostName = data.hosts.definitions.${data.hosts.default}.hostname;
     networkmanager.enable = false;
     useDHCP = false;
     useNetworkd = true;

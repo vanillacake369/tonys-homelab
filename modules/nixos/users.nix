@@ -3,11 +3,11 @@
   lib,
   pkgs,
   config,
-  homelabConfig,
+  data,
   sshPublicKey ? "",
   ...
 }: let
-  userName = homelabConfig.username;
+  userName = data.hosts.definitions.${data.hosts.default}.username;
   sshKeys = lib.optional (sshPublicKey != "") sshPublicKey;
   rootPasswordPath = config.sops.secrets.rootPassword.path;
   userPasswordPath = config.sops.secrets."${userName}Password".path;

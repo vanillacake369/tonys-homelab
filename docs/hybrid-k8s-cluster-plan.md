@@ -198,6 +198,28 @@ kubectl get pods -n kube-system
 
 ---
 
+## Phase 3.5: kubelet 영속 스토리지 (qcow2 블록 디바이스)
+
+### 배경
+- `/var/lib/kubelet`을 virtiofs로 마운트하면 cAdvisor 호환성 문제로 kubelet 크래시
+- tmpfs에 두면 VM 재시작 시 소실되어 클러스터가 깨짐
+- qcow2 블록 디바이스를 사용하여 실제 파일시스템으로 마운트
+
+### 구현
+1. K8s VM에 qcow2 볼륨 추가 (2GB, `/var/lib/kubelet` 마운트)
+2. mkK8sStorageModule에서 `microvm.volumes` 설정
+3. 기존 backup/restore systemd 서비스 제거
+
+### 변경 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `lib/domains/vms.nix` | K8s VM에 kubeletVolume 속성 추가 |
+| `lib/adapters/microvms.nix` | mkK8sStorageModule에 microvm.volumes 추가 |
+| `modules/nixos/k8s-kubeadm-base.nix` | backup/restore 서비스 제거, 의존성 정리 |
+| `modules/nixos/microvm-storage.nix` | 주석 업데이트 |
+
+---
+
 ## Phase 4: GPU 워크로드 배포
 
 ### Ollama 배포 (GPU 노드 타겟팅)
@@ -320,6 +342,14 @@ flowchart TB
 - [ ] CNI 설치 (Flannel)
 - [ ] `kubectl get nodes` 확인
 
+### Phase 3.5: kubelet 영속 스토리지
+- [x] vms.nix에 kubeletVolume 정의
+- [x] microvms.nix 어댑터에 볼륨 마운트 추가
+- [x] k8s-kubeadm-base.nix에서 backup/restore 제거
+- [ ] `just build all`로 빌드 확인
+- [ ] 배포 후 VM 재시작 시 kubelet 유지 확인
+- [ ] `kubectl get nodes` 정상 확인
+
 ### Phase 4: GPU 워크로드
 - [ ] Ollama Deployment 배포
 - [ ] GPU 사용 확인
@@ -338,3 +368,4 @@ flowchart TB
 |------|------|
 | 2026-01-27 | 초안 작성 - GPU passthrough 실패로 인한 Hybrid 구성 계획 |
 | 2026-01-27 | kubeadm 기반으로 전환 - NixOS easyCerts 복잡성 해결 |
+| 2026-01-28 | Phase 3.5 추가 - kubelet qcow2 블록 디바이스 영속화 |

@@ -1,10 +1,10 @@
 {
   inputs,
-  homelabConfig,
+  data,
   lib,
   ...
 }: let
-  userName = homelabConfig.username;
+  userName = data.hosts.definitions.${data.hosts.default}.username;
 in {
   imports = [inputs.sops-nix.nixosModules.sops];
 
@@ -15,7 +15,6 @@ in {
 
     # 정적 시크릿 -> k8s, tailscale
     # 동적 시크릿 -> users
-    # INFO : k8s 서비스가 읽을 수 있도록 044 권한 부여
     secrets =
       {
         "k8s/joinToken" = {

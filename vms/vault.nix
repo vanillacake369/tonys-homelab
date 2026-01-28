@@ -2,11 +2,11 @@
 # VLAN 10 (Management)
 {
   pkgs,
-  homelabConstants,
+  data,
   ...
 }: let
-  vmInfo = homelabConstants.vms.vault;
-  vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
+  vmInfo = data.vms.definitions.vault;
+  vlan = data.network.vlans.${vmInfo.vlan};
 in {
   imports = [
     ../modules/nixos/vm-base.nix
@@ -17,7 +17,7 @@ in {
   users.mutableUsers = false;
 
   microvm = {
-    hypervisor = homelabConstants.common.hypervisor;
+    hypervisor = data.hosts.common.hypervisor;
     vcpu = vmInfo.vcpu;
     mem = vmInfo.mem;
     vsock.cid = vmInfo.vsockCid;
@@ -38,14 +38,14 @@ in {
   networking = {
     hostName = vmInfo.hostname;
     useDHCP = false;
-    nameservers = homelabConstants.networks.dns;
+    nameservers = data.network.dns;
   };
 
   systemd.network.networks."10-lan" = {
     matchConfig.Type = "ether";
     address = ["${vmInfo.ip}/${toString vlan.prefixLength}"];
     gateway = [vlan.gateway];
-    dns = homelabConstants.networks.dns;
+    dns = data.network.dns;
     networkConfig = {
       IPv4Forwarding = true;
       IPv6Forwarding = false;
@@ -74,5 +74,5 @@ in {
     jq
   ];
 
-  system.stateVersion = homelabConstants.common.stateVersion;
+  system.stateVersion = data.hosts.common.stateVersion;
 }

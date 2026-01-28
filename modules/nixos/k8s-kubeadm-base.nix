@@ -6,7 +6,7 @@
 {
   pkgs,
   lib,
-  homelabConstants,
+  data,
   ...
 }: {
   # ============================================================
@@ -63,8 +63,8 @@
   # ============================================================
   systemd.services.kubelet = {
     description = "Kubernetes Kubelet";
-    after = ["containerd.service" "network-online.target" "k8s-kernel-modules.service" "k8s-kubelet-restore.service"];
-    wants = ["containerd.service" "network-online.target" "k8s-kernel-modules.service" "k8s-kubelet-restore.service"];
+    after = ["containerd.service" "network-online.target" "k8s-kernel-modules.service"];
+    wants = ["containerd.service" "network-online.target" "k8s-kernel-modules.service"];
     wantedBy = ["multi-user.target"];
 
     # kubeadm의 환경 파일 로드 (있는 경우)
@@ -95,9 +95,9 @@
   # K8s 클러스터 노드 hosts 설정
   # ============================================================
   networking.hosts = lib.mkMerge [
-    {"${homelabConstants.vms.k8s-master.ip}" = [homelabConstants.vms.k8s-master.hostname];}
-    {"${homelabConstants.vms.k8s-worker-1.ip}" = [homelabConstants.vms.k8s-worker-1.hostname];}
-    {"${homelabConstants.vms.k8s-worker-2.ip}" = [homelabConstants.vms.k8s-worker-2.hostname];}
+    {"${data.vms.definitions.k8s-master.ip}" = [data.vms.definitions.k8s-master.hostname];}
+    {"${data.vms.definitions.k8s-worker-1.ip}" = [data.vms.definitions.k8s-worker-1.hostname];}
+    {"${data.vms.definitions.k8s-worker-2.ip}" = [data.vms.definitions.k8s-worker-2.hostname];}
   ];
 
   # ============================================================
@@ -118,113 +118,13 @@
   # ============================================================
   # 필요한 디렉토리 생성
   #
-  # /etc/kubernetes, /var/lib/etcd:
-  #   virtiofs로 호스트에서 마운트 (영속)
-  #
-  # /var/lib/kubelet:
-  #   로컬 파일시스템에 생성 (cAdvisor 호환성)
-  #   virtiofs로 마운트하면 cAdvisor가 호스트 파일시스템을
-  #   읽지 못해 kubelet이 크래시함
-  #
-  # /etc/kubernetes/kubelet-backup:
-  #   kubelet 설정 백업 디렉토리 (영속)
-  #   /etc/kubernetes가 virtiofs이므로 리부트 후에도 유지됨
-  #   k8s-kubelet-restore 서비스가 여기서 복원함
+  # /etc/kubernetes, /var/lib/etcd: virtiofs로 호스트에서 마운트 (영속)
+  # /var/lib/kubelet: qcow2 블록 디바이스로 마운트 (영속, cAdvisor 호환)
   # ============================================================
   systemd.tmpfiles.rules = [
     "d /etc/kubernetes/manifests 0755 root root - -"
     "d /etc/kubernetes/pki 0755 root root - -"
-    "d /etc/kubernetes/kubelet-backup 0755 root root - -"
-    "d /var/lib/kubelet 0755 root root - -"
   ];
-
-  # ============================================================
-  # kubelet 설정 영속화: 백업 & 복원
-  #
-  # 문제:
-  #   /var/lib/kubelet은 로컬 tmpfs이므로 VM 리부트 시 소실됨.
-  #   kubeadm init/join이 생성하는 config.yaml과
-  #   kubeadm-flags.env가 사라지면 kubelet이 시작 불가.
-  #
-  # 해결:
-  #   1) k8s-kubelet-backup: kubelet 시작 후 설정을 영속 경로에 백업
-  #      /var/lib/kubelet/{config.yaml,kubeadm-flags.env}
-  #      → /etc/kubernetes/kubelet-backup/
-  #
-  #   2) k8s-kubelet-restore: 부팅 시 백업에서 로컬로 복원
-  #      /etc/kubernetes/kubelet-backup/
-  #      → /var/lib/kubelet/
-  #
-  # 전제:
-  #   /etc/kubernetes는 virtiofs로 호스트에 영속 마운트됨.
-  #   최초 kubeadm init/join 후 첫 번째 백업이 생성됨.
-  #   백업이 없으면 복원을 건너뜀 (초기 설치 상태).
-  # ============================================================
-
-  # 백업: kubelet 시작 후 설정 파일을 영속 경로에 저장
-  systemd.services.k8s-kubelet-backup = {
-    description = "Backup kubelet config to persistent storage";
-    after = ["kubelet.service"];
-    requires = ["kubelet.service"];
-    wantedBy = ["multi-user.target"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "kubelet-backup" ''
-        BACKUP_DIR="/etc/kubernetes/kubelet-backup"
-        SOURCE_DIR="/var/lib/kubelet"
-
-        # kubelet 설정이 존재할 때만 백업
-        if [ -f "$SOURCE_DIR/config.yaml" ]; then
-          cp -f "$SOURCE_DIR/config.yaml" "$BACKUP_DIR/config.yaml"
-          echo "Backed up config.yaml"
-        fi
-
-        if [ -f "$SOURCE_DIR/kubeadm-flags.env" ]; then
-          cp -f "$SOURCE_DIR/kubeadm-flags.env" "$BACKUP_DIR/kubeadm-flags.env"
-          echo "Backed up kubeadm-flags.env"
-        fi
-      '';
-    };
-  };
-
-  # 복원: 부팅 시 영속 백업에서 로컬로 복사
-  systemd.services.k8s-kubelet-restore = {
-    description = "Restore kubelet config from persistent backup";
-    before = ["kubelet.service"];
-    after = ["local-fs.target"];
-    wantedBy = ["multi-user.target"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "kubelet-restore" ''
-        BACKUP_DIR="/etc/kubernetes/kubelet-backup"
-        TARGET_DIR="/var/lib/kubelet"
-
-        # 백업이 없으면 스킵 (초기 설치 상태)
-        if [ ! -f "$BACKUP_DIR/config.yaml" ]; then
-          echo "No backup found, skipping restore (initial setup)"
-          exit 0
-        fi
-
-        # 이미 존재하면 스킵 (정상 상태)
-        if [ -f "$TARGET_DIR/config.yaml" ]; then
-          echo "Config already exists, skipping restore"
-          exit 0
-        fi
-
-        # 백업에서 복원
-        mkdir -p "$TARGET_DIR"
-        cp -f "$BACKUP_DIR/config.yaml" "$TARGET_DIR/config.yaml"
-        echo "Restored config.yaml"
-
-        if [ -f "$BACKUP_DIR/kubeadm-flags.env" ]; then
-          cp -f "$BACKUP_DIR/kubeadm-flags.env" "$TARGET_DIR/kubeadm-flags.env"
-          echo "Restored kubeadm-flags.env"
-        fi
-      '';
-    };
-  };
 
   # ============================================================
   # crictl 설정 (containerd 사용)

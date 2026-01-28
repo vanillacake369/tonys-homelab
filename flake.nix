@@ -5,12 +5,6 @@
     # Nixpkgs 채널 (unstable 기반)
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    # 사용자 환경 관리 (home-manager)
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # 디스크 파티셔닝 자동화 (disko)
     disko = {
       url = "github:nix-community/disko";
@@ -40,62 +34,43 @@
     # nixpkgs의 lib 유틸리티 사용
     inherit (nixpkgs) lib;
 
-    # Domain-driven architecture: pure data from domains
-    domains = {
-      shell = import ./lib/domains/shell.nix;
-      packages = import ./lib/domains/packages.nix;
-      editor = import ./lib/domains/editor.nix;
-      users = import ./lib/domains/users.nix;
-      network = import ./lib/domains/network.nix;
-      vms = import ./lib/domains/vms.nix;
-      hosts = import ./lib/domains/hosts.nix;
-    };
-
-    # Backward compatibility: expose as homelabConstants
-    # TODO : Remove redundant layer / verbose middleware modules
-    # Rather, perfer direct mapping between domains and adapters
-    # IF POSSIBLE USE INTERFACE, BUT AFIAK, NIX DOES NOT PROVIDE ANY ABSTACCT NOR INTERFACE FOR SUCH MODULE
-    homelabConstants = {
-      networks = domains.network;
-      vms = domains.vms.definitions;
-      vmOrder = domains.vms.order;
-      microvmList = domains.vms.microvmList;
-      vmTagList = domains.vms.tagList;
-      k8s = domains.vms.k8s;
-      hosts = domains.hosts.definitions;
-      defaultHost = domains.hosts.default;
-      common = domains.hosts.common;
+    # Pure data layer: 단일 데이터 소스
+    data = {
+      shell = import ./lib/data/shell.nix;
+      packages = import ./lib/data/packages.nix;
+      editor = import ./lib/data/editor.nix;
+      users = import ./lib/data/users.nix;
+      network = import ./lib/data/network.nix;
+      vms = import ./lib/data/vms.nix;
+      hosts = import ./lib/data/hosts.nix;
     };
 
     pkgs = import nixpkgs {
-      system = homelabConstants.common.platform;
+      system = data.hosts.common.platform;
       config.allowUnfree = true;
     };
-
-    # Profiles: easy access to domain-based configurations
-    profiles = import ./lib/profiles.nix {inherit pkgs lib;};
 
     # 레포지토리 루트 경로
     baseDir = ./.;
 
-    # Adapters: transform domains into platform-specific configurations
-    # All adapters are in lib/adapters/
-
-    # 모듈에서 사용할 추가 인자 구성
-    specialArgs =
-      import ./lib/adapters/special-args.nix {inherit inputs homelabConstants;}
-      // {
-        inherit domains profiles;
-      };
-
-    # Home Manager 공용 모듈 생성기
-    mkHomeManager = import ./lib/adapters/home-manager-module.nix {
-      inherit inputs homelabConstants specialArgs;
+    # specialArgs: data + env + inputs만 전달
+    specialArgs = {
+      inherit inputs data;
+      microvmTargets = let
+        env = builtins.getEnv "MICROVM_TARGETS";
+      in
+        if env == "" || env == "all"
+        then null
+        else if env == "none"
+        then []
+        else builtins.filter (n: n != "") (builtins.split " " env);
+      sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
+      vmSecretsPath = "/run/host-secrets";
     };
 
     # MicroVM 구성 모듈 생성기
-    mkMicroVMs = import ./lib/adapters/microvms.nix {
-      inherit lib homelabConstants specialArgs baseDir pkgs;
+    mkMicroVMs = import ./lib/mk-microvms.nix {
+      inherit lib data specialArgs baseDir pkgs;
     };
 
     # Colmena 하이브 생성기
@@ -103,8 +78,8 @@
       mainSystem,
       hostModules,
     }:
-      import ./lib/adapters/colmena.nix {
-        inherit lib inputs homelabConstants specialArgs mainSystem hostModules baseDir;
+      import ./lib/mk-colmena.nix {
+        inherit lib inputs data specialArgs mainSystem hostModules baseDir;
       };
 
     # 지원 플랫폼 목록
@@ -114,7 +89,7 @@
     forAllSystems = f: lib.genAttrs supportedSystems f;
 
     # 메인 배포 대상 시스템
-    mainSystem = homelabConstants.common.platform;
+    mainSystem = data.hosts.common.platform;
 
     # 호스트 모듈 묶음
     hostModules = [
@@ -122,9 +97,6 @@
       inputs.disko.nixosModules.disko
       ./modules/nixos/sops.nix
       ./configuration.nix
-      (mkHomeManager {
-        homeConfigPath = ./home.nix;
-      })
       mkMicroVMs
     ];
   in {
@@ -149,11 +121,6 @@
     };
 
     # 원격 배포용 Colmena 하이브
-    # colmena CLI는 'colmena' 또는 'colmenaHive' output을 찾음
     colmenaHive = mkColmenaHive {inherit mainSystem hostModules;};
-
-    # 외부 참조용 상수 노출 (justfile 호환)
-    # warning: unknown flake output 'homelabConstants' 는 무해함
-    inherit homelabConstants;
   };
 }

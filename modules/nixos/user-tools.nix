@@ -1,14 +1,15 @@
 # NixOS user tools configuration
-# git, yazi, fzf 등 사용자 유틸리티
+# HM utils.nix + file-explorer.nix 대체
 {
   pkgs,
+  data,
   ...
 }: {
   programs.git = {
     enable = true;
     config = {
-      user.name = "limjihoon";
-      user.email = "lonelynight1026@gmail.com";
+      user.name = data.users.git.userName;
+      user.email = data.users.git.userEmail;
     };
   };
 

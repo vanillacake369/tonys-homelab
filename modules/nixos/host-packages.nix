@@ -1,14 +1,14 @@
-# 호스트 전용 패키지
+# 호스트 전용 패키지 (full 프로필)
 {
   pkgs,
   data,
   ...
 }: let
-  groups = ["core" "shell" "editor" "network" "monitoring" "dev" "k8s" "hardware" "gpu-amd" "virtualization" "terminal" "misc" "gpu-diag"];
-  resolve = builtins.concatLists (
-    map (g: map (name: pkgs.${name}) (data.packages.${g} or []))
-      groups
-  );
+  resolvePackages = profileName:
+    builtins.concatLists (
+      map (g: (data.packages.groups.${g} or (_: [])) pkgs)
+        (data.packages.profiles.${profileName} or data.packages.profiles.server)
+    );
 in {
-  environment.systemPackages = resolve;
+  environment.systemPackages = resolvePackages "full";
 }

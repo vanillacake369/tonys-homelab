@@ -1,90 +1,23 @@
 # NixOS shell configuration (호스트 + VM 공통)
+# HM shell.nix 대체 — NixOS programs.zsh 사용
 # oh-my-zsh, powerlevel10k, fzf, zsh-autoenv를 interactiveShellInit으로 로드
 {
   lib,
   pkgs,
+  data,
   ...
 }: let
-  aliases = {
-    ll = "ls -l";
-    cat = "bat --style=plain --paging=never";
-    grep = "rg";
-    clear = "clear -x";
-    k = "kubectl";
-    m = "minikube";
-    kctx = "kubectx";
-    kns = "kubens";
-    ka = "kubectl get all -o wide";
-    ks = "kubectl get services -o wide";
-    kap = "kubectl apply -f ";
-  };
-
-  functions = {
-    kube-manifest = ''
-      kube-manifest() {
-        kubectl get $* -o name | \
-            fzf --preview 'kubectl get {} -o yaml' \
-                --bind "ctrl-r:reload(kubectl get $* -o name)" \
-                --bind "ctrl-i:execute(kubectl edit {+})" \
-                --header 'Ctrl-I: live edit | Ctrl-R: reload list';
-      }
-    '';
-    gitlog = ''
-      gitlog() {
-        (
-          git log --oneline | fzf --preview 'git show --color=always {1}'
-        )
-      }
-    '';
-    pslog = ''
-      pslog() {
-        (
-          ps axo pid,rss,comm --no-headers | fzf --preview 'ps o args {1}; ps mu {1}'
-        )
-      }
-    '';
-    search = ''
-      search() {
-        [[ $# -eq 0 ]] && { echo "provide regex argument"; return }
-        local matching_files
-        case $1 in
-          -h)
-            shift
-            matching_files=$(rg -l --hidden $1 | fzf --exit-0 --preview="rg --color=always -n -A 20 '$1' {} ")
-            ;;
-          *)
-            matching_files=$(rg -l -- $1 | fzf --exit-0 --preview="rg --color=always -n -A 20 -- '$1' {} ")
-            ;;
-        esac
-        [[ -n "$matching_files" ]] && $EDITOR "$matching_files" -c/$1
-      }
-    '';
-  };
-
-  functionsLinux = {
-    systemdlog = ''
-      systemdlog() {
-        (
-          find /etc/systemd/system/ -name "*.service" | \
-            fzf --preview 'cat {}' \
-                --bind "ctrl-i:execute(nvim {})" \
-                --bind "ctrl-s:execute(cat {} | xclip -selection clipboard)"
-        )
-      }
-    '';
-  };
-
-  ohmyzshPlugins = ["git" "kubectl" "kube-ps1"];
-
-  allFunctions = builtins.concatStringsSep "\n" (builtins.attrValues functions);
-  linuxFunctions = builtins.concatStringsSep "\n" (builtins.attrValues functionsLinux);
+  shellData = data.shell;
+  allFunctions = builtins.concatStringsSep "\n" (builtins.attrValues shellData.functions);
+  linuxFunctions = builtins.concatStringsSep "\n" (builtins.attrValues (shellData.functionsLinux or {}));
+  ohmyzshPlugins = shellData.zsh.ohMyZsh.plugins;
 in {
   programs.zsh = {
     enable = true;
     enableCompletion = true;
     autosuggestions.enable = true;
     syntaxHighlighting.enable = true;
-    shellAliases = aliases;
+    shellAliases = shellData.aliases;
     interactiveShellInit = ''
       # =============================================================================
       # Oh-My-Zsh
@@ -96,6 +29,7 @@ in {
       # =============================================================================
       # Powerlevel10k
       # =============================================================================
+      # Instant prompt (캐시된 프롬프트 즉시 표시)
       if [[ -r "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh" ]]; then
         source "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh"
       fi

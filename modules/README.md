@@ -16,6 +16,7 @@ modules/
 │   ├── users.nix             # 사용자 계정
 │   ├── microvm-storage.nix   # VM 스토리지 디렉토리
 │   ├── amdgpu.nix            # AMD GPU + ROCm
+│   ├── tailscale.nix          # Tailscale VPN + Exit Node
 │   ├── k8s-kubeadm-base.nix  # kubeadm 기반 K8s
 │   └── k8s-worker-host.nix   # 호스트 K8s worker
 │
@@ -49,6 +50,19 @@ AMD GPU + ROCm 설정:
 - amdgpu 커널 드라이버
 - ROCm 런타임 (HIP, OpenCL)
 - Ollama GPU 가속 지원
+
+### tailscale.nix
+
+Tailscale VPN 및 Exit Node 설정:
+- Tailscale 서비스 활성화 및 SSH 접속
+- sops-nix 기반 자동 인증 (OAuth client secret)
+- Exit Node 광고 (`--advertise-exit-node`)
+- `--netfilter-mode=nodivert` 사용 (Bridge/VLAN 보호)
+- Exit Node용 수동 MASQUERADE NAT 규칙
+
+> **주의:** `nodivert` 모드에서는 Tailscale이 NAT 규칙을 자동 생성하지 않습니다.
+> Exit Node 동작을 위해 `extraCommands`로 MASQUERADE 규칙을 수동 추가합니다.
+> 자세한 내용은 `tailscale.nix` 내 주석을 참고하세요.
 
 ### k8s-kubeadm-base.nix
 

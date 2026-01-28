@@ -2,10 +2,10 @@
 # Automatically creates required storage directories for all VMs
 {
   lib,
-  homelabConstants,
+  data,
   ...
 }: let
-  vmNames = builtins.attrNames homelabConstants.vms;
+  vmNames = builtins.attrNames data.vms.definitions;
 
   # K8s 노드 이름 필터링
   k8sNodeNames = lib.filter (name: lib.hasPrefix "k8s-" name) vmNames;
@@ -18,7 +18,7 @@
         then vm.storage.source
         else null
     )
-    homelabConstants.vms;
+    data.vms.definitions;
 
   # Filter out nulls and get unique paths
   storageDirs = lib.filter (path: path != null) vmStoragePaths;
@@ -27,9 +27,6 @@
   sshHostKeyDirs = map (name: "/var/lib/microvms/${name}/ssh") vmNames;
 
   # K8s 노드 영구 저장 디렉토리 (kubeadm 기반)
-  # /etc/kubernetes 모든 K8s 노드에 필요 (인증서, manifests, kubeconfig)
-  # /var/lib/etcd는 k8s-master만 필요
-  # 주의: /var/lib/kubelet은 virtiofs로 마운트하면 안 됨 (cAdvisor 호환성 문제)
   k8sConfigDirs = map (name: "/var/lib/microvms/${name}/kubernetes") k8sNodeNames;
   k8sEtcdDir = "/var/lib/microvms/k8s-master/etcd";
 in {

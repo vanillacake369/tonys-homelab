@@ -29,6 +29,11 @@
     ./modules/nixos/tailscale.nix
     ./modules/nixos/amdgpu.nix
     ./modules/nixos/k8s-worker-host.nix
+    # HM 대체 모듈
+    ./modules/nixos/shell.nix
+    ./modules/nixos/editor.nix
+    ./modules/nixos/user-tools.nix
+    ./modules/nixos/host-packages.nix
   ];
 
   nixpkgs.config.allowUnfree = true;

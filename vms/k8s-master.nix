@@ -8,11 +8,11 @@
 # 4. join 토큰 생성 후 worker 노드에서 join
 {
   pkgs,
-  homelabConstants,
+  data,
   ...
 }: let
-  vmInfo = homelabConstants.vms.k8s-master;
-  vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
+  vmInfo = data.vms.definitions.k8s-master;
+  vlan = data.network.vlans.${vmInfo.vlan};
 in {
   imports = [
     ../modules/nixos/k8s-kubeadm-base.nix
@@ -22,7 +22,7 @@ in {
   users.mutableUsers = false;
 
   microvm = {
-    hypervisor = homelabConstants.common.hypervisor;
+    hypervisor = data.hosts.common.hypervisor;
     vcpu = vmInfo.vcpu;
     mem = vmInfo.mem;
     vsock.cid = vmInfo.vsockCid;
@@ -40,14 +40,14 @@ in {
   networking = {
     hostName = vmInfo.hostname;
     useDHCP = false;
-    nameservers = homelabConstants.networks.dns;
+    nameservers = data.network.dns;
   };
 
   systemd.network.networks."10-lan" = {
     matchConfig.Type = "ether";
     address = ["${vmInfo.ip}/${toString vlan.prefixLength}"];
     gateway = [vlan.gateway];
-    dns = homelabConstants.networks.dns;
+    dns = data.network.dns;
     networkConfig = {
       IPv4Forwarding = true;
       IPv6Forwarding = false;
@@ -97,7 +97,7 @@ in {
     };
   };
 
-  system.stateVersion = homelabConstants.common.stateVersion;
+  system.stateVersion = data.hosts.common.stateVersion;
 }
 
 # =============================================================

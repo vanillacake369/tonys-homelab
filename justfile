@@ -4,6 +4,7 @@
 # Single source of truth: lib/homelab-constants.nix and flake.nix
 
 ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
+deploy_user := `nix eval --impure --raw .#homelabConstants.hosts.homelab.deployment.targetUser 2>/dev/null`
 
 # Host/VM lists from homelabConstants (SSOT)
 default_host := `nix eval --impure --raw .#homelabConstants.defaultHost`
@@ -11,43 +12,24 @@ host_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake
 vm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.vms)'`
 vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (map (vm: "vm-" + vm) (builtins.attrNames constants.vms))'`
 target := ```
+  lan_ip=$(nix eval --impure --raw .#homelabConstants.networks.wan.host 2>/dev/null)
+  ts_ip=$(nix eval --impure --raw .#homelabConstants.networks.tailscale.host 2>/dev/null)
+  user=$(nix eval --impure --raw .#homelabConstants.hosts.homelab.deployment.targetUser 2>/dev/null)
 
-  wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
-  if [ -z "$wan_ip" ]; then
-    echo "Error: Failed to read WAN IP from flake" >&2
-    exit 1
+  # 1) LAN: direct SSH (fastest, fewer hops)
+  if [ -n "$lan_ip" ] && ssh -o ConnectTimeout=2 -o BatchMode=yes "${user}@${lan_ip}" true 2>/dev/null; then
+    echo "$lan_ip"
+    exit 0
   fi
 
-  # Parse ~/.ssh/config to find Host with matching HostName
-  ssh_host=$(awk -v ip="$wan_ip" '
-    /^Host / { host=$2 }
-    /^[[:space:]]*HostName[[:space:]]/ {
-      if ($2 == ip && host != "*") {
-        print host
-        exit
-      }
-    }
-  ' ~/.ssh/config)
-
-  if [ -z "$ssh_host" ]; then
-    echo "" >&2
-    echo "============================================" >&2
-    echo "ERROR: SSH config not found for homelab server" >&2
-    echo "============================================" >&2
-    echo "" >&2
-    echo "Please add this configuration to ~/.ssh/config:" >&2
-    echo "" >&2
-    echo "Host homelab" >&2
-    echo "  HostName $wan_ip" >&2
-    echo "  User username" >&2
-    echo "  IdentityFile ~/.ssh/your-key.pem" >&2
-    echo "  ServerAliveInterval 60" >&2
-    echo "  ServerAliveCountMax 3" >&2
-    echo "" >&2
-    exit 1
+  # 2) Tailscale IP fallback (works from anywhere)
+  if [ -n "$ts_ip" ] && ssh -o ConnectTimeout=3 -o BatchMode=yes "${user}@${ts_ip}" true 2>/dev/null; then
+    echo "$ts_ip"
+    exit 0
   fi
 
-  echo "$ssh_host"
+  echo "Error: Cannot reach homelab via LAN ($lan_ip) or Tailscale ($ts_ip)" >&2
+  exit 1
 ```
 
 # =============================================================================
@@ -61,11 +43,11 @@ check:
 _colmena cmd on_flag="" extra_flags="" microvm_targets="":
     #!/usr/bin/env bash
     set -euo pipefail
-    MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" \
+    DEPLOY_TARGET="{{ target }}" MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" \
         nix run --impure .#colmena -- {{ cmd }} {{ extra_flags }} {{ on_flag }} --show-trace
 
 _ssh cmd:
-    ssh {{ target }} "{{ cmd }}"
+    ssh {{ deploy_user }}@{{ target }} "{{ cmd }}"
 
 _microvm_action action vm:
     just _ssh "sudo systemctl {{ action }} microvm@{{ vm }}"
@@ -82,7 +64,7 @@ _microvm_wait_running:
         ALL_UP=true
         for vm in {{ vm_list }}; do
             ip=$(just _vm_ip "$vm")
-            if ! ssh {{ target }} "ping -c 1 -W 1 $ip >/dev/null 2>&1"; then
+            if ! ssh {{ deploy_user }}@{{ target }} "ping -c 1 -W 1 $ip >/dev/null 2>&1"; then
                 ALL_UP=false
                 break
             fi
@@ -101,7 +83,7 @@ _microvm_wait_running:
     done
 
 _vm_ssh ip:
-    ssh -J {{ target }} root@{{ ip }}
+    ssh -J {{ deploy_user }}@{{ target }} root@{{ ip }}
 
 _vm_ip vm:
     @nix eval --impure --raw '.#homelabConstants.vms."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
@@ -236,7 +218,7 @@ vm-start vm:
         echo "🟢 Starting all MicroVMs on {{ target }}..."
         for vm in {{ vm_list }}; do
             echo "  Starting microvm@$vm..."
-            ssh {{ target }} "sudo systemctl start microvm@$vm" &
+            ssh {{ deploy_user }}@{{ target }} "sudo systemctl start microvm@$vm" &
         done
         wait
         echo "⏳ Waiting for VMs to stabilize..."
@@ -257,7 +239,7 @@ vm-stop vm:
         echo "🛑 Stopping all MicroVMs..."
         for vm in {{ vm_list }}; do
             echo "  Stopping microvm@$vm..."
-            ssh {{ target }} "sudo systemctl stop microvm@$vm" &
+            ssh {{ deploy_user }}@{{ target }} "sudo systemctl stop microvm@$vm" &
         done
         wait
         echo "⏳ Waiting for VMs to stop..."
@@ -279,7 +261,7 @@ vm-restart vm:
         echo "🔄 Restarting all MicroVMs on {{ target }}..."
         for vm in {{ vm_list }}; do
             echo "  Restarting microvm@$vm..."
-            ssh {{ target }} "sudo systemctl restart microvm@$vm" &
+            ssh {{ deploy_user }}@{{ target }} "sudo systemctl restart microvm@$vm" &
         done
         wait
         echo "⏳ Waiting for VMs to stabilize..."
@@ -295,7 +277,7 @@ vm-logs vm:
 
 # Access VM console (Ctrl-A, X to exit)
 vm-console vm:
-    ssh {{ target }} -t "sudo microvm console {{ vm }}"
+    ssh {{ deploy_user }}@{{ target }} -t "sudo microvm console {{ vm }}"
 
 # SSH into a VM by name
 vm-ssh vm:
@@ -309,7 +291,7 @@ vm-ping:
     echo ""
     for vm in {{ vm_list }}; do
         ip=$(just _vm_ip "$vm")
-        ssh {{ target }} "ping -c 2 -W 2 $ip >/dev/null 2>&1 && echo '✓ $vm ($ip)' || echo '✗ $vm ($ip)'" &
+        ssh {{ deploy_user }}@{{ target }} "ping -c 2 -W 2 $ip >/dev/null 2>&1 && echo '✓ $vm ($ip)' || echo '✗ $vm ($ip)'" &
     done
     wait
 
@@ -330,7 +312,7 @@ vm-setup-storage:
             constants.vms))
       )
     ')
-    ssh {{ target }} "
+    ssh {{ deploy_user }}@{{ target }} "
         for path in $storage_paths; do
             sudo mkdir -p \"\$path\"
         done
@@ -361,16 +343,16 @@ net-show:
     echo "🌐 Network Topology Overview"
     echo ""
     echo "=== IP Addresses ==="
-    ssh {{ target }} "ip -c addr show"
+    ssh {{ deploy_user }}@{{ target }} "ip -c addr show"
     echo ""
     echo "=== Routing Table ==="
-    ssh {{ target }} "ip -c route show"
+    ssh {{ deploy_user }}@{{ target }} "ip -c route show"
     echo ""
     echo "=== Bridge Configuration ==="
-    ssh {{ target }} "ip -d link show vmbr0"
+    ssh {{ deploy_user }}@{{ target }} "ip -d link show vmbr0"
     echo ""
     echo "=== VLAN Interfaces ==="
-    ssh {{ target }} "ip -d link show type vlan"
+    ssh {{ deploy_user }}@{{ target }} "ip -d link show type vlan"
 
 # Check VLAN bridge filtering status
 net-check-vlan:
@@ -378,13 +360,13 @@ net-check-vlan:
     echo "🔍 VLAN Bridge Filtering Status"
     echo ""
     echo "=== Bridge VLAN Table (vmbr0) ==="
-    ssh {{ target }} "sudo bridge vlan show dev vmbr0"
+    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show dev vmbr0"
     echo ""
     echo "=== VLAN 10 (Management) Ports ==="
-    ssh {{ target }} "sudo bridge vlan show | grep -E '(vm-vault|vm-jenkins|vlan10)'"
+    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show | grep -E '(vm-vault|vm-jenkins|vlan10)'"
     echo ""
     echo "=== VLAN 20 (Services) Ports ==="
-    ssh {{ target }} "sudo bridge vlan show | grep -E '(vm-registry|vm-k8s-master|vm-k8s-worker|vlan20)'"
+    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show | grep -E '(vm-registry|vm-k8s-master|vm-k8s-worker|vlan20)'"
 
 # Verify bridge membership and state
 net-check-bridge:
@@ -392,10 +374,10 @@ net-check-bridge:
     echo "🌉 Bridge Membership & State"
     echo ""
     echo "=== Bridge vmbr0 Members ==="
-    ssh {{ target }} "bridge link show | grep vmbr0"
+    ssh {{ deploy_user }}@{{ target }} "bridge link show | grep vmbr0"
     echo ""
     echo "=== Bridge FDB (Forwarding Database) ==="
-    ssh {{ target }} "sudo bridge fdb show br vmbr0"
+    ssh {{ deploy_user }}@{{ target }} "sudo bridge fdb show br vmbr0"
 
 # Check systemd-networkd status and configuration
 net-check-networkd:
@@ -403,13 +385,13 @@ net-check-networkd:
     echo "⚙️  systemd-networkd Status"
     echo ""
     echo "=== Service Status ==="
-    ssh {{ target }} "systemctl status systemd-networkd --no-pager"
+    ssh {{ deploy_user }}@{{ target }} "systemctl status systemd-networkd --no-pager"
     echo ""
     echo "=== Network State ==="
-    ssh {{ target }} "networkctl status"
+    ssh {{ deploy_user }}@{{ target }} "networkctl status"
     echo ""
     echo "=== VLAN Interface States ==="
-    ssh {{ target }} "networkctl status vlan10 vlan20"
+    ssh {{ deploy_user }}@{{ target }} "networkctl status vlan10 vlan20"
 
 # Check ARP tables (Layer 2 connectivity)
 net-check-arp:
@@ -417,13 +399,13 @@ net-check-arp:
     echo "📡 ARP Table Analysis"
     echo ""
     echo "=== Host ARP Table ==="
-    ssh {{ target }} "ip neigh show"
+    ssh {{ deploy_user }}@{{ target }} "ip neigh show"
     echo ""
     echo "=== Management VLAN ==="
-    ssh {{ target }} "ip neigh show dev vlan10"
+    ssh {{ deploy_user }}@{{ target }} "ip neigh show dev vlan10"
     echo ""
     echo "=== Services VLAN ==="
-    ssh {{ target }} "ip neigh show dev vlan20"
+    ssh {{ deploy_user }}@{{ target }} "ip neigh show dev vlan20"
 
 # Comprehensive network diagnostic
 net-diagnose:
@@ -458,8 +440,8 @@ net-diagnose:
     echo "=================================================="
     echo "6. Packet Forwarding & NAT"
     echo "=================================================="
-    ssh {{ target }} "sudo sysctl net.ipv4.ip_forward"
-    ssh {{ target }} "sudo iptables -t nat -L -n -v | head -20"
+    ssh {{ deploy_user }}@{{ target }} "sudo sysctl net.ipv4.ip_forward"
+    ssh {{ deploy_user }}@{{ target }} "sudo iptables -t nat -L -n -v | head -20"
 
 # Reset VM network interface (restart microvm)
 net-reset-vm vm:
@@ -483,7 +465,7 @@ net-reset-all:
         exit 1
     fi
     echo "🔄 Restarting systemd-networkd..."
-    ssh {{ target }} "sudo systemctl restart systemd-networkd"
+    ssh {{ deploy_user }}@{{ target }} "sudo systemctl restart systemd-networkd"
     echo "⏳ Waiting for network to stabilize..."
     sleep 5
     echo "✓ Network service restarted"

@@ -26,6 +26,55 @@ in {
   networking.firewall = {
     allowedUDPPorts = [config.services.tailscale.port];
     trustedInterfaces = ["tailscale0"];
+
+    # =========================================================================
+    # Exit Node MASQUERADE 규칙 (수동 NAT)
+    # =========================================================================
+    #
+    # [왜 필요한가?]
+    #   Tailscale은 기본적으로 netfilter-mode=on 에서
+    #   Exit Node용 MASQUERADE 규칙을 자동으로 추가합니다.
+    #   하지만 이 서버는 --netfilter-mode=nodivert 를 사용하므로
+    #   Tailscale이 NAT 규칙을 자동으로 생성하지 않습니다.
+    #
+    # [왜 nodivert를 유지하는가?]
+    #   이 서버는 복잡한 네트워크 구성을 가지고 있습니다:
+    #   - vmbr0 브릿지 + VLAN 필터링 (vlan10, vlan20)
+    #   - MicroVM에는 br_netfilter ON, 호스트에는 의도적으로 OFF
+    #   - NixOS iptables NAT로 VLAN 간 트래픽 라우팅
+    #   divert 모드는 이 모든 netfilter 규칙을 우회하여
+    #   VLAN 격리, NAT, 방화벽이 무력화될 수 있습니다.
+    #
+    # [이 규칙이 하는 일]
+    #   Tailscale 네트워크(100.64.0.0/10)에서 들어온 트래픽이
+    #   외부 인터페이스(vmbr0)로 나갈 때 소스 IP를 서버 IP로 변환합니다.
+    #   이를 통해 Exit Node 클라이언트의 인터넷 트래픽이
+    #   홈랩 서버를 경유하여 정상적으로 라우팅됩니다.
+    #
+    # [트래픽 흐름]
+    #   클라이언트(공공WiFi)
+    #     → Tailscale 터널 (100.64.0.0/10)
+    #       → 홈랩 서버 (Exit Node)
+    #         → MASQUERADE (소스 IP 변환)
+    #           → vmbr0 → 인터넷
+    # =========================================================================
+    extraCommands = ''
+      iptables -t nat -A POSTROUTING \
+        -s 100.64.0.0/10 \
+        -o vmbr0 \
+        -j MASQUERADE \
+        -m comment --comment "Tailscale Exit Node NAT (nodivert 보완)"
+    '';
+
+    # 서비스 재시작 시 중복 규칙 방지를 위한 정리
+    extraStopCommands = ''
+      iptables -t nat -D POSTROUTING \
+        -s 100.64.0.0/10 \
+        -o vmbr0 \
+        -j MASQUERADE \
+        -m comment --comment "Tailscale Exit Node NAT (nodivert 보완)" \
+        2>/dev/null || true
+    '';
   };
 
   # sops-nix를 통한 자동 로그인 구현

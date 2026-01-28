@@ -3,14 +3,8 @@
   pkgs,
   ...
 }: let
-  clientId = config.sops.secrets."tailscale/clientId".path;
   clientSecret = config.sops.secrets."tailscale/clientSecret".path;
 in {
-  sops.secrets = {
-    "tailscale/clientId".key = "tailscale/clientId";
-    "tailscale/clientSecret".key = "tailscale/clientSecret";
-  };
-
   # Tailscale 패키지 설치
   environment.systemPackages = [pkgs.tailscale];
 
@@ -33,31 +27,35 @@ in {
     trustedInterfaces = ["tailscale0"];
   };
 
-  # sops-nix 를통해 자동 로그인 구현
-  # 'tailscale up' 실행 원샷 서비스
+  # sops-nix를 통한 자동 로그인 구현
+  # OAuth client secret을 auth key로 직접 사용
   systemd.services.tailscale-autoconnect = {
     description = "Automatic connection to Tailscale";
     after = ["network-online.target" "tailscale.service"];
     wants = ["network-online.target" "tailscale.service"];
     wantedBy = ["multi-user.target"];
+
+    path = [pkgs.tailscale pkgs.jq pkgs.coreutils];
+
     serviceConfig = {
       Type = "oneshot";
       Restart = "on-failure";
       RestartSec = "5s";
     };
+
     script = ''
-      # 이미 로그인되어 있다면 skip
-      status=$(${pkgs.tailscale}/bin/tailscale status -json | ${pkgs.jq}/bin/jq -r .BackendState)
+      # 이미 로그인 상태라면 종료
+      status=$(tailscale status -json | jq -r .BackendState)
       if [ "$status" = "Running" ]; then
         exit 0
       fi
 
-      # OAuth 로그인
-      ID=$(cat ${clientId})
+      # OAuth client secret을 auth key로 사용
       SECRET=$(cat ${clientSecret})
-      AUTH_KEY="tskey-client-$ID-$SECRET"
-      ${pkgs.tailscale}/bin/tailscale up \
-        --authkey="$AUTH_KEY" \
+
+      # 인증 실행
+      tailscale up \
+        --authkey="$SECRET" \
         --ssh \
         --netfilter-mode=nodivert
     '';

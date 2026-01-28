@@ -3,23 +3,46 @@
 {
   pkgs,
   homelabConstants,
+  vmSecretsPath,
+  lib,
   ...
 }: let
+  # Secrets are shared from host via virtiofs
+  clusterJoinToken = "${vmSecretsPath}/k8s/joinToken";
   vmInfo = homelabConstants.vms.k8s-worker-2;
   vlan = homelabConstants.networks.vlans.${vmInfo.vlan};
 in {
+  # Auto-join service for Kubernetes cluster
+  systemd.services.k8s-auto-join = {
+    description = "Automatically join the Kubernetes cluster";
+    after = ["network-online.target"];
+    wants = ["network-online.target"];
+    wantedBy = ["multi-user.target"];
+
+    # Skip if already joined (kubelet cert exists)
+    unitConfig.ConditionPathExists = "!/var/lib/kubernetes/secrets/kubelet.key";
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+
+    script = ''
+      # Extract token from CSV format (first field)
+      JOIN_TOKEN=$(cat ${clusterJoinToken} | cut -d',' -f1)
+
+      echo "Starting auto-join with token..."
+      echo "$JOIN_TOKEN" | ${pkgs.kubernetes}/bin/nixos-kubernetes-node-join
+    '';
+  };
+
   # User configuration
   users = {
     mutableUsers = false;
     users.root = {
-      # TEMPORARY: 빈 비밀번호 허용 (개발 전용)
+      # TEMPORARY: empty password for development
       initialHashedPassword = "";
       hashedPassword = "";
-      # TODO : 어떻게 하면 이걸 자동으로
-      # homelab 에서 가져오도록
-      # 할 수 있을까?
-      # (아래는 서버 구성 후 직접 가져온것 )
-      # TODO : sops 사용하여 암호화하기
       openssh.authorizedKeys.keys = [
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICgKsYPtQJYXLQweE0n3bRo1wkNhsNIjbBaA+D1R0/fc limjihoon@homelab"
       ];
@@ -66,7 +89,9 @@ in {
   # Kubernetes worker configuration
   services.kubernetes = {
     roles = ["node"];
-    masterAddress = homelabConstants.vms.k8s-master.hostname;
+    masterAddress = homelabConstants.vms.k8s-master.ip;
+    apiserverAddress = "https://${homelabConstants.vms.k8s-master.ip}:${toString homelabConstants.vms.k8s-master.ports.api}";
+    easyCerts = true;
   };
 
   # Firewall configuration
@@ -115,6 +140,34 @@ in {
     jq
     bind
   ];
+
+  # ============================================================
+  # 1. 커널 모듈 및 sysctl 설정
+  # ============================================================
+  boot.kernelModules = ["overlay" "br_netfilter"];
+  boot.kernel.sysctl = {
+    "net.bridge.bridge-nf-call-iptables" = lib.mkForce 1;
+    "net.bridge.bridge-nf-call-ip6tables" = lib.mkForce 1;
+    "net.ipv4.ip_forward" = lib.mkForce 1;
+  };
+
+  # 부팅 시 커널 모듈 확실히 로드
+  systemd.services.k8s-kernel-modules = {
+    description = "Load Kubernetes required kernel modules";
+    before = ["kubelet.service" "containerd.service"];
+    wantedBy = ["multi-user.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      ${pkgs.kmod}/bin/modprobe overlay
+      ${pkgs.kmod}/bin/modprobe br_netfilter
+      ${pkgs.procps}/bin/sysctl -w net.bridge.bridge-nf-call-iptables=1
+      ${pkgs.procps}/bin/sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+      ${pkgs.procps}/bin/sysctl -w net.ipv4.ip_forward=1
+    '';
+  };
 
   # Enable container runtime
   virtualisation.containerd.enable = true;

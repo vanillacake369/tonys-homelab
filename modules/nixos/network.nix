@@ -1,23 +1,21 @@
-# Network configuration for homelab server
-# Pure systemd-networkd configuration with Explicit Declarations
-{
-  homelabConfig,
-  homelabConstants,
-  ...
-}: let
+# homelab 네트워크를 systemd-networkd로 구성
+# 브리지/VLAN/TAP 설정을 통합 관리
+{homelabConstants, ...}: let
+  # 네트워크 상수 참조
   homelabNetwork = homelabConstants.networks;
+  # 외부 브리지 인터페이스 이름
   externalIf = "vmbr0";
-  internalBridge = "vmbr1";
+  # VM/VLAN 상수 묶음
   vms = homelabConstants.vms;
   vlans = homelabConstants.networks.vlans;
 
-  # VLAN IDs
-  mgmtVlanId = vlans.management.id; # 10
-  svcVlanId = vlans.services.id; # 20
-
+  # VLAN ID 축약 별칭
+  mgmtVlanId = vlans.management.id;
+  svcVlanId = vlans.services.id;
 in {
+  # 기본 네트워크 설정
   networking = {
-    hostName = homelabConfig.hostname;
+    hostName = homelabConstants.host.hostname;
     networkmanager.enable = false;
     useDHCP = false;
     useNetworkd = true;
@@ -27,28 +25,25 @@ in {
       allowedTCPPorts = [22];
     };
 
+    # NAT으로 내부 VLAN 라우팅
+    nat = {
+      enable = true;
+      externalInterface = externalIf;
+      internalInterfaces = ["vlan10" "vlan20"];
+      enableIPv6 = false;
+    };
   };
 
-  # systemd-networkd 완전 전환 설정
-  environment.etc."qemu/bridge.conf".text = ''
-allow ${externalIf}
-allow ${internalBridge}
-allow all
-  '';
+  # 라우팅용 IPv4 포워딩 활성화
+  boot.kernel.sysctl = {
+    "net.ipv4.ip_forward" = 1;
+  };
 
+  # systemd-networkd 수동 구성
   systemd.network = {
-    wait-online = {
-      anyInterface = true;
-      extraArgs = [
-        "--ignore=vmbr1"
-      ];
-    };
-
-    # -------------------------------------------------------------------------
-    # 1. NetDevs: 가상 장치 생성 (Bridge, VLAN, TAP)
-    # -------------------------------------------------------------------------
+    # 가상 장치(브리지, VLAN, TAP) 정의
     netdevs = {
-      # 브리지 생성 (WAN, LAN Trunk)
+      # 메인 브리지 생성 + VLAN 필터링
       "10-vmbr0" = {
         netdevConfig = {
           Name = externalIf;
@@ -56,16 +51,24 @@ allow all
         };
         bridgeConfig.VLANFiltering = true;
       };
-      "10-vmbr1" = {
+
+      # VLAN 게이트웨이용 내부 인터페이스
+      "20-vlan10" = {
         netdevConfig = {
-          Name = internalBridge;
-          Kind = "bridge";
+          Name = "vlan10";
+          Kind = "vlan";
         };
-        bridgeConfig.VLANFiltering = true;
+        vlanConfig.Id = mgmtVlanId;
+      };
+      "20-vlan20" = {
+        netdevConfig = {
+          Name = "vlan20";
+          Kind = "vlan";
+        };
+        vlanConfig.Id = svcVlanId;
       };
 
-
-      # MicroVM용 TAP 인터페이스 명시적 생성
+      # MicroVM TAP 인터페이스 고정 생성
       "30-tap-vault" = {
         netdevConfig = {
           Name = vms.vault.tapId;
@@ -104,47 +107,49 @@ allow all
       };
     };
 
-    # -------------------------------------------------------------------------
-    # 2. Networks: 인터페이스별 네트워크 설정 및 VLAN 바인딩
-    # -------------------------------------------------------------------------
+    # 인터페이스별 네트워크 설정
     networks = {
-      # 물리 인터페이스 (WAN 연결)
+      # 물리 NIC를 브리지에 연결
       "05-physical" = {
         matchConfig.Name = "enp1s0";
         networkConfig.Bridge = externalIf;
         linkConfig.RequiredForOnline = "carrier";
       };
 
-      # WAN 브리지 (호스트 관리용 IP만 할당)
+      # 브리지에 WAN IP와 VLAN 바인딩
       "10-vmbr0" = {
         matchConfig.Name = externalIf;
+        vlan = ["vlan10" "vlan20"];
         address = ["${homelabNetwork.wan.host}/${toString homelabNetwork.wan.prefixLength}"];
         networkConfig = {
           Gateway = homelabNetwork.wan.gateway;
           DNS = homelabNetwork.dns;
+          IPv4Forwarding = true;
+          IPv6Forwarding = false;
         };
-        linkConfig.RequiredForOnline = "carrier";
-      };
-
-      # LAN 트렁크 브리지 (OPNsense가 라우팅 담당)
-      "10-vmbr1" = {
-        matchConfig.Name = internalBridge;
         bridgeVLANs = [
           {VLAN = mgmtVlanId;}
           {VLAN = svcVlanId;}
         ];
-        networkConfig.ConfigureWithoutCarrier = true;
         linkConfig.RequiredForOnline = "carrier";
       };
 
-      # OPNsense WAN/LAN TAP
+      # VLAN 게이트웨이 IP 할당
+      "30-vlan10" = {
+        matchConfig.Name = "vlan10";
+        address = ["${vlans.management.gateway}/${toString vlans.management.prefixLength}"];
+        networkConfig.IPv4Forwarding = true;
+      };
+      "30-vlan20" = {
+        matchConfig.Name = "vlan20";
+        address = ["${vlans.services.gateway}/${toString vlans.services.prefixLength}"];
+        networkConfig.IPv4Forwarding = true;
+      };
 
-      # --- 개별 VM TAP 네트워크 설정 (VLAN 할당) ---
-
-      # VLAN 10 (Management)
+      # 각 VM TAP 인터페이스에 VLAN 매핑
       "50-vm-vault" = {
         matchConfig.Name = vms.vault.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             VLAN = mgmtVlanId;
@@ -155,7 +160,7 @@ allow all
       };
       "50-vm-jenkins" = {
         matchConfig.Name = vms.jenkins.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             PVID = mgmtVlanId;
@@ -164,10 +169,10 @@ allow all
         ];
       };
 
-      # VLAN 20 (Services)
+      # 서비스 VLAN에 붙는 VM
       "50-vm-registry" = {
         matchConfig.Name = vms.registry.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             PVID = svcVlanId;
@@ -177,7 +182,7 @@ allow all
       };
       "50-vm-k8s-master" = {
         matchConfig.Name = vms.k8s-master.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             PVID = svcVlanId;
@@ -187,7 +192,7 @@ allow all
       };
       "50-vm-k8s-worker1" = {
         matchConfig.Name = vms.k8s-worker-1.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             PVID = svcVlanId;
@@ -197,7 +202,7 @@ allow all
       };
       "50-vm-k8s-worker2" = {
         matchConfig.Name = vms.k8s-worker-2.tapId;
-        networkConfig.Bridge = internalBridge;
+        networkConfig.Bridge = externalIf;
         bridgeVLANs = [
           {
             PVID = svcVlanId;

@@ -30,14 +30,8 @@ in {
       }
     ];
 
-    shares = [
-      {
-        source = vmInfo.storage.source;
-        mountPoint = vmInfo.storage.mountPoint;
-        tag = vmInfo.storage.tag;
-        proto = "virtiofs";
-      }
-    ];
+    # Storage share는 mk-microvms.nix의 mkStorageModule이 처리
+    shares = [];
   };
 
   # Network configuration (systemd-networkd)

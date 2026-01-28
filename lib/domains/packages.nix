@@ -106,7 +106,7 @@
     minimal = ["core" "shell"];
 
     # Server: basic server administration
-    server = ["core" "shell" "editor" "network" "monitoring"];
+    server = ["core" "shell" "editor" "network" "monitoring" "dev" "hardware"];
 
     # K8s node: server + kubernetes tools
     k8s-node = ["core" "shell" "editor" "network" "monitoring" "k8s" "hardware"];

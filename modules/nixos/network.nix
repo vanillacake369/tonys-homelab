@@ -49,7 +49,7 @@
 in {
   # 기본 네트워크 설정
   networking = {
-    hostName = homelabConstants.host.hostname;
+    hostName = homelabConstants.hosts.${homelabConstants.defaultHost}.hostname;
     networkmanager.enable = false;
     useDHCP = false;
     useNetworkd = true;

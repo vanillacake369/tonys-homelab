@@ -14,6 +14,10 @@ _: {
     kernelModules = [
       "kvm-amd"
       "vhost_net"
+      # VFIO modules for GPU passthrough
+      "vfio"
+      "vfio_iommu_type1"
+      "vfio_pci"
     ];
     blacklistedKernelModules = [
       "snd_hda_intel"

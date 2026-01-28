@@ -5,10 +5,11 @@
 
 ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
 
-# SSH target: Auto-detect from ~/.ssh/config by matching WAN IP
-
-vm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.vms)' || { echo "Error: Failed to read vm list from flake" >&2; exit 1; }`
-vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (map (vm: "vm-" + vm) (builtins.attrNames constants.vms))' || { echo "Error: Failed to read vm tag list from flake" >&2; exit 1; }`
+# Host/VM lists from homelabConstants (SSOT)
+default_host := `nix eval --impure --raw .#homelabConstants.defaultHost`
+host_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.hosts)'`
+vm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.vms)'`
+vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (map (vm: "vm-" + vm) (builtins.attrNames constants.vms))'`
 target := ```
 
   wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
@@ -107,20 +108,19 @@ _vm_ip vm:
 
 # Build configuration locally (dry-run)
 # Usage:
-#   just build all                        # 전체 빌드 (server + 모든 VM)
-#   just build server                     # 서버만 빌드 (VM 설정 포함)
-#   just build server --no-vm             # 서버만 빌드 (VM 설정 제외)
-#   just build server --server homelab-1  # 서버 노드 지정
-#   just build vm                         # 모든 VM 빌드
-#   just build vm vault                   # 특정 VM 빌드
-#   just build vm k8s                     # K8S 클러스터 빌드 (태그)
-build type="server" name="" server="homelab-1":
+#   just build all                    # 전체 빌드 (server + 모든 VM)
+#   just build server                 # 서버만 빌드 (VM 설정 포함)
+#   just build server --no-vm         # 서버만 빌드 (VM 설정 제외)
+#   just build vm                     # 모든 VM 빌드
+#   just build vm vault               # 특정 VM 빌드
+#   just build vm k8s                 # K8S 클러스터 빌드 (태그)
+build type="server" name="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ type }}" in
         all)
-            echo "🚀 Building server: {{ server }}"
-            just _colmena build "--on {{ server }}" "--impure" "none"
+            echo "🚀 Building server: {{ default_host }}"
+            just _colmena build "--on {{ default_host }}" "--impure" "none"
             for vm in {{ vm_list }}; do
                 echo "🚀 Building VM: $vm"
                 just _colmena build "--on $vm" "--impure" "$vm"
@@ -128,9 +128,9 @@ build type="server" name="" server="homelab-1":
             ;;
         server)
             if [ "{{ name }}" = "--no-vm" ]; then
-                just _colmena build "--on {{ server }}" "--impure" "none"
+                just _colmena build "--on {{ default_host }}" "--impure" "none"
             else
-                just _colmena build "--on {{ server }}" "--impure" "all"
+                just _colmena build "--on {{ default_host }}" "--impure" "all"
             fi
             ;;
         vm)
@@ -177,20 +177,19 @@ show-config:
 # =============================================================================
 # Deploy configuration via Colmena
 # Usage:
-#   just deploy all                        # 전체 배포 (server + 모든 VM)
-#   just deploy server                     # 서버만 배포 (VM 설정 포함)
-#   just deploy server --no-vm             # 서버만 배포 (VM 설정 제외)
-#   just deploy server --server homelab-1  # 서버 노드 지정
-#   just deploy vm                         # 모든 VM 배포
-#   just deploy vm vault                   # 특정 VM 배포
-#   just deploy vm k8s                     # K8S 클러스터 배포 (태그)
-deploy type="server" name="" server="homelab-1":
+#   just deploy all                    # 전체 배포 (server + 모든 VM)
+#   just deploy server                 # 서버만 배포 (VM 설정 포함)
+#   just deploy server --no-vm         # 서버만 배포 (VM 설정 제외)
+#   just deploy vm                     # 모든 VM 배포
+#   just deploy vm vault               # 특정 VM 배포
+#   just deploy vm k8s                 # K8S 클러스터 배포 (태그)
+deploy type="server" name="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ type }}" in
         all)
-            echo "🚀 Applying server: {{ server }}"
-            just _colmena apply "--on {{ server }}" "--verbose --impure" "none"
+            echo "🚀 Applying server: {{ default_host }}"
+            just _colmena apply "--on {{ default_host }}" "--verbose --impure" "none"
             for vm in {{ vm_list }}; do
                 echo "🚀 Applying VM: $vm"
                 just _colmena apply "--on $vm" "--verbose --impure" "$vm"
@@ -198,9 +197,9 @@ deploy type="server" name="" server="homelab-1":
             ;;
         server)
             if [ "{{ name }}" = "--no-vm" ]; then
-                just _colmena apply "--on {{ server }}" "--verbose --impure" "none"
+                just _colmena apply "--on {{ default_host }}" "--verbose --impure" "none"
             else
-                just _colmena apply "--on {{ server }}" "--verbose --impure" "all"
+                just _colmena apply "--on {{ default_host }}" "--verbose --impure" "all"
             fi
             ;;
         vm)

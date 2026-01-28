@@ -24,8 +24,10 @@
 
   # VM에서 호스트 secrets에 접근하는 경로
   vmSecretsPath = "/run/host-secrets";
+  # 기본 호스트 정보 (단일 호스트 설정용)
+  defaultHostInfo = homelabConstants.hosts.${homelabConstants.defaultHost};
 in {
   inherit inputs homelabConstants microvmTargets sshPublicKey vmSecretsPath;
-  # 호스트 설정 별칭 (기존 모듈 호환성)
-  homelabConfig = homelabConstants.host;
+  # 호스트 설정 별칭 (기존 모듈 호환성 - defaultHost 참조)
+  homelabConfig = defaultHostInfo;
 }

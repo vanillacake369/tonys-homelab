@@ -44,12 +44,17 @@
   ];
 
   # ============================================================
-  # 공통 방화벽 설정 (CNI - Flannel)
+  # 공통 방화벽 설정 (CNI - Flannel + K8s 내부 통신)
   # ============================================================
-  networking.firewall.allowedUDPPorts = [
-    8472 # Flannel VXLAN
-    8285 # Flannel UDP (백업)
-  ];
+  networking.firewall = {
+    allowedTCPPorts = [
+      10250 # kubelet API (required for logs, exec, port-forward)
+    ];
+    allowedUDPPorts = [
+      8472 # Flannel VXLAN
+      8285 # Flannel UDP (백업)
+    ];
+  };
 
   # ============================================================
   # 컨테이너 런타임 및 공통 패키지

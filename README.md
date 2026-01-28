@@ -172,6 +172,36 @@ ssh homelab "mkpasswd -m sha-512"
 
 ### 배포 (Colmena)
 
+```mermaid
+flowchart LR
+    subgraph Local["Local Machine"]
+        Dev["Operator"]
+        Flake["flake.nix"]
+    end
+
+    subgraph CI["GitHub Actions"]
+        Check["nix flake check"]
+        Build["nix build (dry-run)"]
+        Deploy["colmena apply"]
+    end
+
+    subgraph Remote["Homelab Server"]
+        Host["NixOS Host"]
+        VMs["MicroVMs"]
+    end
+
+    Dev -->|"just check"| Flake
+    Dev -->|"just deploy"| Deploy
+    Flake --> Check --> Build
+    Build -->|"PR"| Dev
+    Deploy -->|"SSH"| Host
+    Host -->|"microvm.nix"| VMs
+
+    style Local fill:#2d3748,stroke:#4a5568,color:#fff
+    style CI fill:#1a365d,stroke:#2b6cb0,color:#fff
+    style Remote fill:#22543d,stroke:#2f855a,color:#fff
+```
+
 ```bash
 # 설정 검증
 just check

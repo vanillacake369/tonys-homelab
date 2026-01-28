@@ -52,31 +52,73 @@ modules/
 
 네트워크 아키텍처 (systemd-networkd 기반)
 
-**주요 컴포넌트:**
+```mermaid
+flowchart TB
+    subgraph Physical["Physical Layer"]
+        NIC["enp1s0<br/>(Physical NIC)"]
+    end
 
-- `enp1s0`: 물리 NIC (브릿지 슬레이브)
-- `vmbr0`: VLAN trunk 브릿지
-- `vlan10`: Management VLAN 인터페이스
-- `vlan20`: Services VLAN 인터페이스
-- `vm-*`: VM별 TAP 인터페이스
+    subgraph Bridge["Bridge Layer"]
+        VMBR["vmbr0<br/>(VLAN Trunk Bridge)"]
+    end
 
-**기능:**
+    subgraph VLAN["VLAN Layer"]
+        V10["vlan10<br/>10.0.10.0/24<br/>(Management)"]
+        V20["vlan20<br/>10.0.20.0/24<br/>(Services)"]
+    end
 
-- VLAN 필터링 (bridge vlan)
-- NAT (iptables masquerade)
-- IPv4 포워딩
-- 방화벽 규칙
+    subgraph TAP["TAP Interfaces"]
+        TAP1["vm-vault"]
+        TAP2["vm-jenkins"]
+        TAP3["vm-registry"]
+        TAP4["vm-k8s-master"]
+        TAP5["vm-k8s-worker1"]
+        TAP6["vm-k8s-worker2"]
+    end
+
+    NIC --> VMBR
+    VMBR -->|"VLAN 10"| V10
+    VMBR -->|"VLAN 20"| V20
+
+    V10 -.-> TAP1 & TAP2
+    V20 -.-> TAP3 & TAP4 & TAP5 & TAP6
+
+    style Physical fill:#1a1a2e,stroke:#16213e,color:#fff
+    style Bridge fill:#0f3460,stroke:#16213e,color:#fff
+    style VLAN fill:#533483,stroke:#16213e,color:#fff
+    style TAP fill:#e94560,stroke:#16213e,color:#fff
+```
+
+**트래픽 흐름:**
+
+```mermaid
+sequenceDiagram
+    participant VM as VM (10.0.20.11)
+    participant TAP as TAP Interface
+    participant Bridge as vmbr0
+    participant VLAN as vlan20
+    participant NAT as iptables NAT
+    participant WAN as Internet
+
+    VM->>TAP: Packet (src: 10.0.20.11)
+    TAP->>Bridge: Tagged VLAN 20
+    Bridge->>VLAN: VLAN filtering
+    VLAN->>NAT: IP forwarding
+    NAT->>WAN: MASQUERADE (src: WAN IP)
+    WAN-->>NAT: Response
+    NAT-->>VM: DNAT back
+```
 
 ### ssh.nix
 
 SSH 서버 설정
 
-| 설정          | 값            |
-| ------------- | ------------- |
-| 포트          | 22            |
-| 루트 로그인   | 허용 (개발용) |
-| 패스워드 인증 | 비활성화      |
-| 공개키 인증   | 활성화        |
+| 설정          | 값                   |
+| ------------- | -------------------- |
+| 포트          | 22                   |
+| 루트 로그인   | prohibit-password    |
+| 패스워드 인증 | 비활성화             |
+| 공개키 인증   | 활성화               |
 
 ### sops.nix
 

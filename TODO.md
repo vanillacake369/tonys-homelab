@@ -64,8 +64,9 @@
   - 해결: 모든 VM을 `systemd.network.networks` 방식으로 통일
   - 호스트와 동일한 systemd-networkd 기반 설정
 
-- [ ] **P3-2: 방화벽 포트 설정 정리** (별도 이슈)
-  - K8s 클러스터 조인 문제와 연관 - 추가 조사 필요
+- [x] **P3-2: 방화벽 포트 설정 정리** ✅
+  - 해결: `k8s-base.nix`에 kubelet API 포트(10250) 추가
+  - Flannel VXLAN(8472), kubelet 통신을 위한 공통 방화벽 규칙
 
 ### 🟡 MEDIUM
 
@@ -91,12 +92,18 @@
 
 ---
 
-## 📌 Phase 5: 미완성 구현 완료 - 부분 완료
+## 📌 Phase 5: 미완성 구현 완료 - ✅ 완료
 
-### 🟠 HIGH (별도 이슈)
+### 🟠 HIGH
 
-- [ ] **P5-1: K8s 자동 조인 구현** (별도 이슈로 관리)
-- [ ] **P5-2: K8s 클러스터 설정 보완** (별도 이슈로 관리)
+- [x] **P5-1: K8s 자동 조인 구현** ✅
+  - 해결: NixOS kubernetes 모듈의 `easyCerts` 활용
+  - 불필요한 `k8s-auto-join` systemd 서비스 제거
+  - `services.kubernetes.kubelet.kubeconfig.server` 설정으로 대체
+
+- [x] **P5-2: K8s 클러스터 설정 보완** ✅
+  - 해결: Colmena VM 배포 시 sops.nix 제거 (VM은 virtiofs로 시크릿 수신)
+  - `mk-colmena.nix`에서 불필요한 sops 모듈 import 제거
 
 ### 🟡 MEDIUM
 
@@ -120,60 +127,49 @@
   - Phase 1-2에서 관련 코드가 이미 리팩토링됨
   - 해결 후 TODO 주석 제거
 
-- [ ] **P6-4: "TEMPORARY" 주석 표시된 설정 검토**
-  - 영향 파일: 모든 VM 파일
-  - 현재: 개발용 임시 설정이 "TEMPORARY" 주석과 함께 존재
-  - 해결: 프로덕션 전환 시 모두 제거/수정
+- [x] **P6-4: "TEMPORARY" 주석 표시된 설정 검토** ✅
+  - 해결: Phase 1에서 이미 모든 임시 설정 제거됨
+  - SSH 설정 `prohibit-password`로 강화 완료
+  - README 문서 업데이트
 
 ---
 
-## 📌 Phase 7: 문서화 (Documentation)
+## 📌 Phase 7: 빌드/배포 개선 - ✅ 완료
 
 ### 🟡 MEDIUM
 
-- [ ] **P7-1: homelabConstants 스키마 문서화**
-  - 현재: `homelabConstants.vms` 구조가 문서화되지 않음
-  - 필요 내용:
-    - 필수 필드
-    - 선택 필드 및 기본값
-    - `deployment.tags`, `vlan` 등 유효 값
+- [x] **P7-1: CI/로컬 빌드 일관성** ✅
+  - 해결: `homelabCi` 구성 제거, 환경변수 `MICROVM_TARGETS` 기반으로 통합
+  - CI에서 `MICROVM_TARGETS=none` 사용
+  - 변경 파일: `flake.nix`, `.github/workflows/ci-common.yml`
 
-- [ ] **P7-2: 네트워크 토폴로지 문서화**
-  - 영향 파일: `modules/nixos/network.nix`
-  - 필요 내용:
-    - VLAN ID 선택 이유
-    - 트래픽 흐름 설명
-    - 트러블슈팅 가이드
+- [x] **P7-2: LVM thin pool 문서화** ✅
+  - 해결: `disko-config.nix` 상단에 오버커밋 전략 및 모니터링 가이드 추가
+  - 포함 내용: 오버커밋 근거, 모니터링 명령어, 알림 임계값
 
-- [ ] **P7-3: 배포 워크플로우 문서화**
-  - 필요 내용:
-    - 단일 VM vs 전체 VM 배포 방법
-    - 롤백 절차
-    - Colmena 태그 사용법 (`k8s`, `vm-vault` 등)
+---
+
+## 📌 Phase 8: 문서화 (Documentation) - ✅ 완료
+
+### 🟡 MEDIUM
+
+- [x] **P8-1: homelabConstants 스키마 문서화** ✅
+  - 해결: `lib/README.md`에 VM 스키마 ER 다이어그램 추가
+  - Mermaid erDiagram으로 필수/선택 필드 시각화
+
+- [x] **P8-2: 네트워크 토폴로지 문서화** ✅
+  - 해결: `modules/README.md`에 네트워크 아키텍처 다이어그램 추가
+  - 트래픽 흐름 시퀀스 다이어그램 포함
+
+- [x] **P8-3: 배포 워크플로우 문서화** ✅
+  - 해결: `README.md`에 배포 플로우 다이어그램 추가
+  - Local → CI → Remote 흐름 시각화
 
 ### 🔵 LOW
 
-- [ ] **P7-4: lib/ 함수 문서화**
-  - 영향 파일:
-    - `lib/mk-microvms.nix` - vmSecrets 매핑 설명
-    - `lib/mk-special-args.nix` - SSH_PUB_KEY 환경변수 요구사항
-    - `lib/mk-colmena.nix` - 메타데이터 구조
-
----
-
-## 📌 Phase 8: 빌드/배포 개선
-
-### 🟡 MEDIUM
-
-- [ ] **P8-1: CI/로컬 빌드 일관성**
-  - 영향 파일: `flake.nix:111-116`
-  - 현재: `nixosConfigurations.homelabCi`가 `microvmTargets = []`로 VM 빌드 스킵
-  - 해결: 모듈 옵션 기반으로 전환 또는 명확한 네이밍/문서화
-
-- [ ] **P8-2: LVM thin pool 문서화**
-  - 영향 파일: `disko-config.nix:60-132`
-  - 현재: 2.1x 오버커밋 (논리 800G / 물리 380G)
-  - 해결: 근거 및 모니터링 전략 문서화
+- [x] **P8-4: lib/ 함수 문서화** ✅
+  - 해결: `lib/README.md`에 모듈 의존성 플로우차트 추가
+  - flake.nix → lib/ → outputs 관계 시각화
 
 ---
 

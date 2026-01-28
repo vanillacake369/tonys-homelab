@@ -10,14 +10,11 @@ _: {
       efi.canTouchEfiVariables = true;
     };
     # KVM 모듈 로드 및 가상화 지원
-    # AMD CPU 라면 "kvm-adm"
+    # AMD CPU 라면 "kvm-amd"
+    # VFIO 모듈은 vfio-gpu.nix에서 initrd 단계에서 조기 로딩됨
     kernelModules = [
       "kvm-amd"
       "vhost_net"
-      # VFIO modules for GPU passthrough
-      "vfio"
-      "vfio_iommu_type1"
-      "vfio_pci"
     ];
     blacklistedKernelModules = [
       "snd_hda_intel"

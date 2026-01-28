@@ -27,6 +27,7 @@
     ./modules/nixos/users.nix
     ./modules/nixos/microvm-storage.nix
     ./modules/nixos/tailscale.nix
+    ./modules/nixos/vfio-gpu.nix
   ];
 
   nixpkgs.config.allowUnfree = true;

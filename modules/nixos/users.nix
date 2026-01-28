@@ -12,17 +12,6 @@
   rootPasswordPath = config.sops.secrets.rootPassword.path;
   userPasswordPath = config.sops.secrets."${userName}Password".path;
 in {
-  sops.secrets = builtins.listToAttrs (map (k: {
-      name = k; # Nix 내부 이름 (예: rootPassword, limjihoonPassword)
-      value = {
-        key = "users/${k}"; # YAML 파일 내 경로 (users/rootPassword)
-        neededForUsers = true;
-      };
-    }) [
-      "rootPassword"
-      "${userName}Password"
-    ]);
-
   programs.zsh.enable = true;
 
   users = {

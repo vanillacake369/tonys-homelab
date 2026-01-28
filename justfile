@@ -7,9 +7,8 @@ ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-pu
 
 # SSH target: Auto-detect from ~/.ssh/config by matching WAN IP
 
-vm_order := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.vmOrder' || { echo "Error: Failed to read vmOrder from flake" >&2; exit 1; }`
-microvm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.microvmList' || { echo "Error: Failed to read microvmList from flake" >&2; exit 1; }`
-vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.vmTagList' || { echo "Error: Failed to read vmTagList from flake" >&2; exit 1; }`
+vm_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (builtins.attrNames constants.vms)' || { echo "Error: Failed to read vm list from flake" >&2; exit 1; }`
+vm_tag_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " (map (vm: "vm-" + vm) (builtins.attrNames constants.vms))' || { echo "Error: Failed to read vm tag list from flake" >&2; exit 1; }`
 target := ```
 
   wan_ip=$(nix eval --raw .#homelabConstants.networks.wan.host 2>/dev/null)
@@ -50,50 +49,19 @@ target := ```
   echo "$ssh_host"
 ```
 
-# VM IP addresses from constants
-
-vault_ip := `nix eval --impure --raw .#homelabConstants.vms.vault.ip || { echo "Error: Failed to read vault IP" >&2; exit 1; }`
-jenkins_ip := `nix eval --impure --raw .#homelabConstants.vms.jenkins.ip || { echo "Error: Failed to read jenkins IP" >&2; exit 1; }`
-registry_ip := `nix eval --impure --raw .#homelabConstants.vms.registry.ip || { echo "Error: Failed to read registry IP" >&2; exit 1; }`
-k8s_master := `nix eval --impure --raw .#homelabConstants.k8s.master || { echo "Error: Failed to read k8s master host" >&2; exit 1; }`
-k8s_worker_list := `nix eval --impure --raw --expr 'let constants = (builtins.getFlake (toString ./.)).homelabConstants; in builtins.concatStringsSep " " constants.k8s.workerOrder' || { echo "Error: Failed to read k8s worker list" >&2; exit 1; }`
-k8s_master_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-master".ip' || { echo "Error: Failed to read k8s master IP" >&2; exit 1; }`
-k8s_worker1_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-1".ip' || { echo "Error: Failed to read k8s worker-1 IP" >&2; exit 1; }`
-k8s_worker2_ip := `nix eval --impure --raw '.#homelabConstants.vms."k8s-worker-2".ip' || { echo "Error: Failed to read k8s worker-2 IP" >&2; exit 1; }`
-
 # =============================================================================
 # Development Commands (Local Testing)
 # =============================================================================
 
 # Check flake configuration for errors
 check:
-    nix flake check --impure --all-systems
+    nix flake check --impure --all-systems --show-trace
 
-# Build configuration locally (dry-run)
-# Usage: just build
-# Usage: just build homelab
-# Usage: just build jenkins
-# Usage: just build vm-jenkins
-
-# Usage: just build k8s
-_resolve_target target:
+_colmena cmd on_flag="" extra_flags="" microvm_targets="":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{ target }}" = "homelab" ]; then
-        echo "@homelab"
-    elif [ "{{ target }}" = "vms" ]; then
-        echo "@"$(echo "{{ vm_tag_list }}" | tr ' ' ',')
-    elif [ "{{ target }}" = "k8s" ]; then
-        echo "@k8s"
-    else
-        echo "{{ target }}"
-    fi
-
-_colmena cmd target extra_flags="" microvm_targets="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    on_target=$(just _resolve_target {{ target }})
-    MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" nix run --impure .#colmena -- {{ cmd }} {{ extra_flags }} --on "$on_target"
+    MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" \
+        nix run --impure .#colmena -- {{ cmd }} {{ extra_flags }} {{ on_flag }} --show-trace
 
 _ssh cmd:
     ssh {{ target }} "{{ cmd }}"
@@ -104,71 +72,81 @@ _microvm_action action vm:
 _microvm_status:
     just _ssh "systemctl list-units 'microvm@*' --no-pager"
 
-_microvm_bulk_action action:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    VMS="{{ microvm_list }}"
-    declare -A PIDS=()
-    for vm in $VMS; do
-        echo "🔄 Sending {{ action }} signal to microvm@$vm..."
-        ssh {{ target }} "sudo systemctl {{ action }} microvm@$vm" &
-        PIDS[$vm]=$!
-    done
-
-    FAILED_VMS=()
-    for vm in "${!PIDS[@]}"; do
-        if ! wait "${PIDS[$vm]}"; then
-            FAILED_VMS+=("$vm")
-        fi
-    done
-
-    if [ ${#FAILED_VMS[@]} -gt 0 ]; then
-        echo "❌ Failed to {{ action }}: ${FAILED_VMS[*]}" >&2
-        exit 1
-    fi
-
 _microvm_wait_running:
     #!/usr/bin/env bash
     set -euo pipefail
-    MAX_RETRIES=15
+    MAX_RETRIES=20
+    echo "⏳ Waiting for VMs to respond to ping..."
     for ((i=1; i<=MAX_RETRIES; i++)); do
-        FAILED_COUNT=$(ssh {{ target }} "systemctl list-units 'microvm@*' --no-legend --no-pager | awk '{print $1}' | xargs -I {} systemctl show -p SubState --value {} | grep -vc '^running$' || true")
-        if [ "$FAILED_COUNT" -eq 0 ]; then
-            echo "✅ All VMs are now running."
+        ALL_UP=true
+        for vm in {{ vm_list }}; do
+            ip=$(just _vm_ip "$vm")
+            if ! ssh {{ target }} "ping -c 1 -W 1 $ip >/dev/null 2>&1"; then
+                ALL_UP=false
+                break
+            fi
+        done
+        if $ALL_UP; then
+            echo "✅ All VMs are responding."
             exit 0
         fi
         if [ "$i" -eq "$MAX_RETRIES" ]; then
-            echo "⚠️  Some VMs are taking too long or failed to start."
+            echo "⚠️  Some VMs are not responding after ${MAX_RETRIES} attempts."
+            just vm-ping
             exit 1
         fi
         echo "... waiting ($i/$MAX_RETRIES)"
-        sleep 3
+        sleep 2
     done
 
 _vm_ssh ip:
     ssh -J {{ target }} root@{{ ip }}
 
 _vm_ip vm:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{ vm }}" in
-        vault) echo "{{ vault_ip }}" ;;
-        jenkins) echo "{{ jenkins_ip }}" ;;
-        registry) echo "{{ registry_ip }}" ;;
-        k8s-master) echo "{{ k8s_master_ip }}" ;;
-        k8s-worker-1|k8s-worker1) echo "{{ k8s_worker1_ip }}" ;;
-        k8s-worker-2|k8s-worker2) echo "{{ k8s_worker2_ip }}" ;;
-        *) echo "Unknown VM: {{ vm }}" >&2; exit 1 ;;
-    esac
+    @nix eval --impure --raw '.#homelabConstants.vms."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
 
-build target="all":
+# Build configuration locally (dry-run)
+# Usage:
+#   just build all                        # 전체 빌드 (server + 모든 VM)
+#   just build server                     # 서버만 빌드 (VM 설정 포함)
+#   just build server --no-vm             # 서버만 빌드 (VM 설정 제외)
+#   just build server --server homelab-1  # 서버 노드 지정
+#   just build vm                         # 모든 VM 빌드
+#   just build vm vault                   # 특정 VM 빌드
+#   just build vm k8s                     # K8S 클러스터 빌드 (태그)
+build type="server" name="" server="homelab-1":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{ target }}" = "all" ]; then
-        just _colmena build homelab "" "all"
-        exit 0
-    fi
-    just _colmena build homelab "" "{{ target }}"
+    case "{{ type }}" in
+        all)
+            echo "🚀 Building server: {{ server }}"
+            just _colmena build "--on {{ server }}" "--impure" "none"
+            for vm in {{ vm_list }}; do
+                echo "🚀 Building VM: $vm"
+                just _colmena build "--on $vm" "--impure" "$vm"
+            done
+            ;;
+        server)
+            if [ "{{ name }}" = "--no-vm" ]; then
+                just _colmena build "--on {{ server }}" "--impure" "none"
+            else
+                just _colmena build "--on {{ server }}" "--impure" "all"
+            fi
+            ;;
+        vm)
+            if [ -z "{{ name }}" ]; then
+                just _colmena build "--on @$(echo '{{ vm_tag_list }}' | tr ' ' ',')" "--impure" ""
+            elif [ "{{ name }}" = "k8s" ]; then
+                just _colmena build "--on @k8s" "--impure" ""
+            else
+                just _colmena build "--on {{ name }}" "--impure" "{{ name }}"
+            fi
+            ;;
+        *)
+            echo "Usage: just build [all|server [--no-vm]|vm [name|k8s]]" >&2
+            exit 1
+            ;;
+    esac
 
 # Update flake inputs
 update:
@@ -176,45 +154,69 @@ update:
 
 # Show current infrastructure values
 show-config:
-    @echo "=== SSH Connection ==="
-    @echo "Detected Host: {{ target }}"
-    @echo "WAN IP:        $(nix eval --raw .#homelabConstants.networks.wan.host)"
-    @echo "Source:        ~/.ssh/config (auto-detected)"
-    @echo ""
-    @echo "=== Network Configuration ==="
-    @echo "WAN Network:   $(nix eval --raw .#homelabConstants.networks.wan.network)"
-    @echo "WAN Gateway:   $(nix eval --raw .#homelabConstants.networks.wan.gateway)"
-    @echo ""
-    @echo "=== VM IP Addresses ==="
-    @echo "Vault (VLAN 10):        {{ vault_ip }}"
-    @echo "Jenkins (VLAN 10):      {{ jenkins_ip }}"
-    @echo "Registry (VLAN 20):     {{ registry_ip }}"
-    @echo "K8s Master (VLAN 20):   {{ k8s_master_ip }}"
-    @echo "K8s Worker-1 (VLAN 20): {{ k8s_worker1_ip }}"
-    @echo "K8s Worker-2 (VLAN 20): {{ k8s_worker2_ip }}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== SSH Connection ==="
+    echo "Detected Host: {{ target }}"
+    echo "WAN IP:        $(nix eval --raw .#homelabConstants.networks.wan.host)"
+    echo "Source:        ~/.ssh/config (auto-detected)"
+    echo ""
+    echo "=== Network Configuration ==="
+    echo "WAN Network:   $(nix eval --raw .#homelabConstants.networks.wan.network)"
+    echo "WAN Gateway:   $(nix eval --raw .#homelabConstants.networks.wan.gateway)"
+    echo ""
+    echo "=== VM IP Addresses ==="
+    for vm in {{ vm_list }}; do
+        ip=$(just _vm_ip "$vm")
+        vlan=$(nix eval --impure --raw ".#homelabConstants.vms.\"$vm\".vlan")
+        printf "%-20s %s (VLAN: %s)\n" "$vm:" "$ip" "$vlan"
+    done
 
 # =============================================================================
 # Production Deployment
 # =============================================================================
-# Deploy by target (homelab or vm name)
-# Usage: just deploy
-# Usage: just deploy homelab
-# Usage: just deploy vault
-# Available node names: vault, jenkins, registry, k8s-master, k8s-worker-1, k8s-worker-2
-
-# Targets: homelab, vm name
-deploy target="all":
+# Deploy configuration via Colmena
+# Usage:
+#   just deploy all                        # 전체 배포 (server + 모든 VM)
+#   just deploy server                     # 서버만 배포 (VM 설정 포함)
+#   just deploy server --no-vm             # 서버만 배포 (VM 설정 제외)
+#   just deploy server --server homelab-1  # 서버 노드 지정
+#   just deploy vm                         # 모든 VM 배포
+#   just deploy vm vault                   # 특정 VM 배포
+#   just deploy vm k8s                     # K8S 클러스터 배포 (태그)
+deploy type="server" name="" server="homelab-1":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{ target }}" = "all" ]; then
-        just _colmena apply homelab "--verbose --impure" "all"
-        exit 0
-    fi
-    if [ "{{ target }}" = "homelab" ]; then
-        just _colmena apply homelab "--verbose --impure" "none"
-        exit 0
-    fi
-    just _colmena apply homelab "--verbose --impure" "{{ target }}"
+    case "{{ type }}" in
+        all)
+            echo "🚀 Applying server: {{ server }}"
+            just _colmena apply "--on {{ server }}" "--verbose --impure" "none"
+            for vm in {{ vm_list }}; do
+                echo "🚀 Applying VM: $vm"
+                just _colmena apply "--on $vm" "--verbose --impure" "$vm"
+            done
+            ;;
+        server)
+            if [ "{{ name }}" = "--no-vm" ]; then
+                just _colmena apply "--on {{ server }}" "--verbose --impure" "none"
+            else
+                just _colmena apply "--on {{ server }}" "--verbose --impure" "all"
+            fi
+            ;;
+        vm)
+            if [ -z "{{ name }}" ]; then
+                just _colmena apply "--on @$(echo '{{ vm_tag_list }}' | tr ' ' ',')" "--verbose --impure" ""
+            elif [ "{{ name }}" = "k8s" ]; then
+                just _colmena apply "--on @k8s" "--verbose --impure" ""
+            else
+                just _colmena apply "--on {{ name }}" "--verbose --impure" "{{ name }}"
+            fi
+            ;;
+        *)
+            echo "Usage: just deploy [all|server [--no-vm]|vm [name|k8s]]" >&2
+            exit 1
+            ;;
+    esac
 
 # =============================================================================
 # MicroVM Management
@@ -224,52 +226,69 @@ deploy target="all":
 vm-status:
     just _microvm_status
 
-# Start a specific VM (or all)
+# Start VM(s)
+# Usage:
+#   just vm-start vault          # 특정 VM 시작
+#   just vm-start all            # 모든 VM 시작
 vm-start vm:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ vm }}" = "all" ]; then
         echo "🟢 Starting all MicroVMs on {{ target }}..."
-        just _microvm_bulk_action start
+        for vm in {{ vm_list }}; do
+            echo "  Starting microvm@$vm..."
+            ssh {{ target }} "sudo systemctl start microvm@$vm" &
+        done
+        wait
         echo "⏳ Waiting for VMs to stabilize..."
         just _microvm_wait_running
         just vm-status
-        exit 0
+    else
+        just _microvm_action start {{ vm }}
     fi
-    just _microvm_action start {{ vm }}
 
-# Stop a specific VM (or all)
+# Stop VM(s)
+# Usage:
+#   just vm-stop vault           # 특정 VM 중지
+#   just vm-stop all             # 모든 VM 중지
 vm-stop vm:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ vm }}" = "all" ]; then
         echo "🛑 Stopping all MicroVMs..."
-        just _microvm_bulk_action stop
+        for vm in {{ vm_list }}; do
+            echo "  Stopping microvm@$vm..."
+            ssh {{ target }} "sudo systemctl stop microvm@$vm" &
+        done
+        wait
         echo "⏳ Waiting for VMs to stop..."
         sleep 3
         echo "✓ All VMs stopped"
         just vm-status
-        exit 0
+    else
+        just _microvm_action stop {{ vm }}
     fi
-    just _microvm_action stop {{ vm }}
 
-# Stop all VMs
-vm-stop-all:
-    just vm-stop all
-
-# Restart a specific VM (or all)
+# Restart VM(s)
+# Usage:
+#   just vm-restart vault        # 특정 VM 재시작
+#   just vm-restart all          # 모든 VM 재시작
 vm-restart vm:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ vm }}" = "all" ]; then
-        echo "🟢 Restarting all MicroVMs on {{ target }}..."
-        just _microvm_bulk_action restart
+        echo "🔄 Restarting all MicroVMs on {{ target }}..."
+        for vm in {{ vm_list }}; do
+            echo "  Restarting microvm@$vm..."
+            ssh {{ target }} "sudo systemctl restart microvm@$vm" &
+        done
+        wait
         echo "⏳ Waiting for VMs to stabilize..."
         just _microvm_wait_running
         just vm-status
-        exit 0
+    else
+        just _microvm_action restart {{ vm }}
     fi
-    just _microvm_action restart {{ vm }}
 
 # View VM logs (follow mode)
 vm-logs vm:
@@ -289,23 +308,11 @@ vm-ping:
     set -euo pipefail
     echo "🔍 Checking VM connectivity..."
     echo ""
-    echo "VLAN 10 (Management):"
-    ssh {{ target }} "ping -c 2 {{ vault_ip }} && echo '✓ Vault ({{ vault_ip }})' || echo '✗ Vault ({{ vault_ip }})'" &
-    PID_VAULT=$!
-    ssh {{ target }} "ping -c 2 {{ jenkins_ip }} && echo '✓ Jenkins ({{ jenkins_ip }})' || echo '✗ Jenkins ({{ jenkins_ip }})'" &
-    PID_JENKINS=$!
-    wait "$PID_VAULT" "$PID_JENKINS"
-    echo ""
-    echo "VLAN 20 (Services):"
-    ssh {{ target }} "ping -c 2 {{ registry_ip }} && echo '✓ Registry ({{ registry_ip }})' || echo '✗ Registry ({{ registry_ip }})'" &
-    PID_REGISTRY=$!
-    ssh {{ target }} "ping -c 2 {{ k8s_master_ip }} && echo '✓ K8s Master ({{ k8s_master_ip }})' || echo '✗ K8s Master ({{ k8s_master_ip }})'" &
-    PID_K8S_MASTER=$!
-    ssh {{ target }} "ping -c 2 {{ k8s_worker1_ip }} && echo '✓ K8s Worker-1 ({{ k8s_worker1_ip }})' || echo '✗ K8s Worker-1 ({{ k8s_worker1_ip }})'" &
-    PID_K8S_WORKER1=$!
-    ssh {{ target }} "ping -c 2 {{ k8s_worker2_ip }} && echo '✓ K8s Worker-2 ({{ k8s_worker2_ip }})' || echo '✗ K8s Worker-2 ({{ k8s_worker2_ip }})'" &
-    PID_K8S_WORKER2=$!
-    wait "$PID_REGISTRY" "$PID_K8S_MASTER" "$PID_K8S_WORKER1" "$PID_K8S_WORKER2"
+    for vm in {{ vm_list }}; do
+        ip=$(just _vm_ip "$vm")
+        ssh {{ target }} "ping -c 2 -W 2 $ip >/dev/null 2>&1 && echo '✓ $vm ($ip)' || echo '✗ $vm ($ip)'" &
+    done
+    wait
 
 # =============================================================================
 # Initial Setup (One-time operations)
@@ -314,16 +321,25 @@ vm-ping:
 # Create VM storage directories on homelab
 vm-setup-storage:
     #!/usr/bin/env bash
-    ssh {{ target }} << 'EOF'
-        sudo mkdir -p /var/lib/microvms/vault/data
-        sudo mkdir -p /var/lib/microvms/jenkins/home
-        sudo mkdir -p /var/lib/microvms/registry/data
-        sudo mkdir -p /var/lib/microvms/k8s-master/etcd
+    set -euo pipefail
+    storage_paths=$(nix eval --impure --raw --expr '
+      let constants = (builtins.getFlake (toString ./.)).homelabConstants;
+      in builtins.concatStringsSep " " (
+        builtins.filter (x: x != "")
+          (builtins.attrValues (builtins.mapAttrs
+            (name: vm: vm.storage.source or "")
+            constants.vms))
+      )
+    ')
+    ssh {{ target }} "
+        for path in $storage_paths; do
+            sudo mkdir -p \"\$path\"
+        done
         sudo chown -R root:kvm /var/lib/microvms
         sudo chmod -R 0755 /var/lib/microvms
-        echo "✓ MicroVM storage directories created"
+        echo '✓ MicroVM storage directories created'
         ls -la /var/lib/microvms/
-    EOF
+    "
 
 # Full initial deployment (setup + deploy + start VMs)
 init:
@@ -406,8 +422,8 @@ net-check-arp:
     echo ""
     echo "=== Management VLAN ==="
     ssh {{ target }} "ip neigh show dev vlan10"
-    echo ""  
-    echo "=== Services VLAN ===" 
+    echo ""
+    echo "=== Services VLAN ==="
     ssh {{ target }} "ip neigh show dev vlan20"
 
 # Comprehensive network diagnostic
@@ -438,7 +454,7 @@ net-diagnose:
     echo "=================================================="
     echo "5. Connectivity Tests"
     echo "=================================================="
-    just net-test-homelab-to-vm
+    just vm-ping
     echo ""
     echo "=================================================="
     echo "6. Packet Forwarding & NAT"

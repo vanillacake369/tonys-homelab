@@ -1,1 +1,4 @@
 lib/homelab-constants.nix filter=git-crypt diff=git-crypt
+lib/data/hosts.nix filter=git-crypt diff=git-crypt
+lib/data/network.nix filter=git-crypt diff=git-crypt
+lib/data/vms.nix filter=git-crypt diff=git-crypt

@@ -15,7 +15,7 @@
   vlan = data.network.vlans.${vmInfo.vlan};
 in {
   imports = [
-    ../modules/nixos/k8s-kubeadm-base.nix
+    ../modules/nixos/k8s-node.nix
   ];
 
   # User configuration

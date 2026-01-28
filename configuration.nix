@@ -28,7 +28,7 @@
     ./modules/nixos/microvm-storage.nix
     ./modules/nixos/tailscale.nix
     ./modules/nixos/amdgpu.nix
-    ./modules/nixos/k8s-worker-host.nix
+    ./modules/nixos/k8s-node.nix
     # HM 대체 모듈
     ./modules/nixos/shell.nix
     ./modules/nixos/editor.nix

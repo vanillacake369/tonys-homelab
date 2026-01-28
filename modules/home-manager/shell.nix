@@ -1,9 +1,38 @@
 # Home-manager shell configuration
+# Domain-driven: imports shell configuration from lib/domains/shell.nix
 {
   lib,
   pkgs,
   ...
-}: {
+}: let
+  # Import shell domain directly (home-manager doesn't receive specialArgs.domains)
+  shellDomain = import ../../lib/domains/shell.nix;
+
+  # Combine all functions from domain
+  allFunctions = builtins.concatStringsSep "\n" (builtins.attrValues shellDomain.functions);
+
+  # Platform-specific functions
+  platformFunctions =
+    if pkgs.stdenv.isDarwin
+    then builtins.concatStringsSep "\n" (builtins.attrValues (shellDomain.functionsDarwin or {}))
+    else if pkgs.stdenv.isLinux
+    then builtins.concatStringsSep "\n" (builtins.attrValues (shellDomain.functionsLinux or {}))
+    else "";
+
+  # Platform-specific aliases (additions to domain aliases)
+  platformAliases = {
+    # Tools
+    claude-monitor = "uv tool run claude-monitor";
+
+    # Clipboard (platform-specific)
+    copy =
+      if pkgs.stdenv.isDarwin
+      then "pbcopy"
+      else "xclip -selection clipboard";
+  } // lib.optionalAttrs pkgs.stdenv.isDarwin {
+    hidden-bar = "open ~/.nix-profile/Applications/\"Hidden Bar.app\"";
+  };
+in {
   # Shell packages
   home.packages = with pkgs; [
     zsh-autoenv
@@ -17,36 +46,8 @@
       autosuggestion.enable = true;
       syntaxHighlighting.enable = true;
 
-      # Shell aliases
-      shellAliases =
-        {
-          # Basic utilities
-          ll = "ls -l";
-          cat = "bat --style=plain --paging=never";
-          grep = "rg";
-          clear = "clear -x";
-
-          # Kubernetes shortcuts
-          k = "kubectl";
-          m = "minikube";
-          kctx = "kubectx";
-          kns = "kubens";
-          ka = "kubectl get all -o wide";
-          ks = "kubectl get services -o wide";
-          kap = "kubectl apply -f ";
-
-          # Tools
-          claude-monitor = "uv tool run claude-monitor";
-
-          # Clipboard (platform-specific)
-          copy =
-            if pkgs.stdenv.isDarwin
-            then "pbcopy"
-            else "xclip -selection clipboard";
-        }
-        // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          hidden-bar = "open ~/.nix-profile/Applications/\"Hidden Bar.app\"";
-        };
+      # Shell aliases from domain + platform-specific
+      shellAliases = shellDomain.aliases // platformAliases;
 
       # Powerlevel10k theme
       plugins = [
@@ -57,18 +58,13 @@
         }
       ];
 
-      # Oh-My-Zsh plugins
+      # Oh-My-Zsh plugins from domain
       oh-my-zsh = {
         enable = true;
-        plugins = [
-          "git"
-          "kubectl"
-          "kube-ps1"
-        ];
+        plugins = shellDomain.zsh.ohMyZsh.plugins;
       };
 
       # ZSH initialization script
-      # `programs.zsh.initContent`
       initContent = ''
 
         # Nix daemon initialization (prevents removal via macOS updates)
@@ -93,10 +89,6 @@
         bindkey '^[[F' end-of-line
         esac
 
-        # Load home-manager session variables (NixOS module handles this automatically)
-        # For standalone Home-Manager, uncomment the following line:
-        # . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
-
         # Enable systemd user session lingering (Linux only)
         ${lib.optionalString pkgs.stdenv.isLinux ''
           if ! loginctl show-user "$USER" | grep -q "Linger=yes"; then
@@ -105,78 +97,18 @@
         ''}
 
         # =============================================================================
-        # Custom Functions
+        # Custom Functions (from domain)
         # =============================================================================
+        ${allFunctions}
 
-        # Kubernetes manifest viewer with fzf
-        kube-manifest() {
-          kubectl get $* -o name | \
-              fzf --preview 'kubectl get {} -o yaml' \
-                  --bind "ctrl-r:reload(kubectl get $* -o name)" \
-                  --bind "ctrl-i:execute(kubectl edit {+})" \
-                  --header 'Ctrl-I: live edit | Ctrl-R: reload list';
-        }
+        # Platform-specific functions
+        ${platformFunctions}
 
-        # Git log with preview
-        gitlog() {
-          (
-            git log --oneline | fzf --preview 'git show --color=always {1}'
-          )
-        }
-
-        # Process viewer
-        pslog() {
-          (
-            ps axo pid,rss,comm --no-headers | fzf --preview 'ps o args {1}; ps mu {1}'
-          )
-        }
-
-        # Package dependencies viewer
+        # Package dependencies viewer (apt-specific, not in domain)
         pckg-dep() {
           (
             apt-cache search . | fzf --preview 'apt-cache depends {1}'
           )
-        }
-
-        # Systemd service viewer (Linux)
-        ${lib.optionalString pkgs.stdenv.isLinux ''
-          systemdlog() {
-            (
-              find /etc/systemd/system/ -name "*.service" | \
-                fzf --preview 'cat {}' \
-                    --bind "ctrl-i:execute(nvim {})" \
-                    --bind "ctrl-s:execute(cat {} | copy)"
-            )
-          }
-        ''}
-
-        # Launchd service viewer (macOS)
-        ${lib.optionalString pkgs.stdenv.isDarwin ''
-          systemdlog() {
-            (
-              launchctl list | \
-                fzf --preview 'launchctl print system/{1} 2>/dev/null || launchctl print user/$(id -u)/{1} 2>/dev/null || echo "Service details not available"' \
-                    --bind "ctrl-i:execute(nvim /Library/LaunchDaemons/{1}.plist 2>/dev/null || nvim /System/Library/LaunchDaemons/{1}.plist 2>/dev/null || nvim ~/Library/LaunchAgents/{1}.plist 2>/dev/null || echo 'Plist file not found')" \
-                    --bind "ctrl-s:execute(launchctl print system/{1} 2>/dev/null | pbcopy || launchctl print user/$(id -u)/{1} 2>/dev/null | pbcopy)" \
-                    --header 'Ctrl-I: edit plist | Ctrl-R: reload list | Ctrl-S: copy service info'
-            )
-          }
-        ''}
-
-        # Search files by keyword with fzf
-        search() {
-          [[ $# -eq 0 ]] && { echo "provide regex argument"; return }
-          local matching_files
-          case $1 in
-            -h)
-              shift
-              matching_files=$(rg -l --hidden $1 | fzf --exit-0 --preview="rg --color=always -n -A 20 '$1' {} ")
-              ;;
-            *)
-              matching_files=$(rg -l -- $1 | fzf --exit-0 --preview="rg --color=always -n -A 20 -- '$1' {} ")
-              ;;
-          esac
-          [[ -n "$matching_files" ]] && $EDITOR "$matching_files" -c/$1
         }
       '';
     };

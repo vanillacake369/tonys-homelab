@@ -18,11 +18,16 @@
   # 호스트 SSH 공개키
   hostSshPubKey = data.hosts.definitions.${data.hosts.default}.sshPubKey or null;
 
-  # 패키지 resolve 함수 (profiles.nix 대체)
+  # VM 프로필별 그룹 목록
+  vmProfiles = {
+    k8s-node = ["core" "shell" "editor" "network" "monitoring" "k8s" "hardware"];
+    server = ["core" "shell" "editor" "network" "monitoring" "dev" "hardware"];
+  };
+
   resolvePackages = profileName:
     builtins.concatLists (
-      map (g: (data.packages.groups.${g} or (_: [])) pkgs)
-        (data.packages.profiles.${profileName} or data.packages.profiles.server)
+      map (g: map (name: pkgs.${name}) (data.packages.${g} or []))
+        (vmProfiles.${profileName} or vmProfiles.server)
     );
 
   # VM별 필요한 secrets 디렉토리 정의 (principle of least privilege)
@@ -53,35 +58,18 @@
   # VM 이름 → 설정 파일 경로 매핑
   vmConfigPath = name: baseDir + "/vms/${name}.nix";
 
-  # VM 공통 모듈 생성: 쉘, SSH 키, 사용자 비밀번호
+  # VM 공통 모듈 생성: 패키지, SSH 키, 사용자 비밀번호
+  # shell/editor 설정은 modules/nixos/shell.nix, editor.nix를 import하여 처리
   mkVmCommonModule = vmName: {lib, ...}: let
-    # K8s VMs use k8s-node profile, others use server profile
     isK8sVm = lib.hasPrefix "k8s-" vmName;
     profileName = if isK8sVm then "k8s-node" else "server";
-    shellData = data.shell;
-    editorData = data.editor;
   in {
-    # Packages from appropriate profile
+    imports = [
+      (baseDir + "/modules/nixos/shell.nix")
+      (baseDir + "/modules/nixos/editor.nix")
+    ];
+
     environment.systemPackages = resolvePackages profileName;
-
-    # Editor configuration from data
-    programs.neovim = {
-      enable = editorData.neovim.enable;
-      defaultEditor = editorData.neovim.defaultEditor;
-    };
-
-    # Shell configuration from data (NixOS style)
-    programs.zsh = {
-      enable = true;
-      enableCompletion = true;
-      autosuggestions.enable = true;
-      syntaxHighlighting.enable = true;
-      shellAliases = shellData.aliases;
-      interactiveShellInit = ''
-        ${builtins.concatStringsSep "\n" (builtins.attrValues shellData.functions)}
-        ${lib.optionalString pkgs.stdenv.isLinux (builtins.concatStringsSep "\n" (builtins.attrValues (shellData.functionsLinux or {})))}
-      '';
-    };
 
     users.users.root = {
       shell = pkgs.zsh;

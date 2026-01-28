@@ -36,10 +36,7 @@
 
     # Pure data layer: 단일 데이터 소스
     data = {
-      shell = import ./lib/data/shell.nix;
       packages = import ./lib/data/packages.nix;
-      editor = import ./lib/data/editor.nix;
-      users = import ./lib/data/users.nix;
       network = import ./lib/data/network.nix;
       vms = import ./lib/data/vms.nix;
       hosts = import ./lib/data/hosts.nix;
@@ -66,6 +63,7 @@
         else builtins.filter (n: n != "") (builtins.split " " env);
       sshPublicKey = builtins.getEnv "SSH_PUB_KEY";
       vmSecretsPath = "/run/host-secrets";
+      microvmTarget = null; # 호스트용 기본값 (VM은 mk-microvms.nix에서 override)
     };
 
     # MicroVM 구성 모듈 생성기

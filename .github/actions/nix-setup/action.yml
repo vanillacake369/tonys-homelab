@@ -1,14 +1,11 @@
 name: Nix Setup
-description: Checkout + Nix + Cache + git-crypt unlock
+description: Nix + Cache + git-crypt unlock (requires checkout first)
 inputs:
   git-crypt-key:
     required: true
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
     - uses: DeterminateSystems/nix-installer-action@v21
     - uses: DeterminateSystems/magic-nix-cache-action@v13
     - name: Unlock git-crypt

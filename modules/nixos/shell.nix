@@ -87,6 +87,13 @@ in {
     shellAliases = aliases;
     interactiveShellInit = ''
       # =============================================================================
+      # Powerlevel10k Instant Prompt (must be at the very top)
+      # =============================================================================
+      if [[ -r "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh" ]]; then
+        source "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh"
+      fi
+
+      # =============================================================================
       # Oh-My-Zsh
       # =============================================================================
       export ZSH=${pkgs.oh-my-zsh}/share/oh-my-zsh
@@ -94,11 +101,8 @@ in {
       source $ZSH/oh-my-zsh.sh
 
       # =============================================================================
-      # Powerlevel10k
+      # Powerlevel10k Theme
       # =============================================================================
-      if [[ -r "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh" ]]; then
-        source "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh"
-      fi
       source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme
       [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
 
@@ -140,6 +144,11 @@ in {
       # =============================================================================
       ${allFunctions}
       ${lib.optionalString pkgs.stdenv.isLinux linuxFunctions}
+
+      # =============================================================================
+      # Powerlevel10k Finalize (must be at the very end)
+      # =============================================================================
+      (( ! ''${+functions[p10k]} )) || p10k finalize
     '';
   };
 

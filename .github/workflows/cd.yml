@@ -1,0 +1,41 @@
+name: CD
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+concurrency:
+  group: cd-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/nix-setup
+        with:
+          git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
+      - uses: tailscale/github-action@v4.1.1
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:cd
+          args: --ssh
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.TS_DEST_IP }} ${{ secrets.SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+          cat <<EOF >> ~/.ssh/config
+          Host ${{ secrets.TS_DEST_IP }}
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            User root
+          EOF
+      - name: Restore sops key
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          echo "SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt" >> $GITHUB_ENV
+      - name: Deploy
+        run: |
+          SSH_PUB_KEY="${{ secrets.SSH_PUB_KEY }}" \
+            nix run .#colmena -- apply --on homelab --show-trace

@@ -6,7 +6,7 @@
   specialArgs,
   baseDir,
   pkgs,
-}: {config, ...}: let
+}: _: let
   # 전체 VM 타겟 목록
   allTargets = builtins.attrNames data.vms.definitions;
   # 필요 시 특정 VM만 필터링
@@ -27,31 +27,67 @@
   resolvePackages = profileName:
     builtins.concatLists (
       map (g: map (name: pkgs.${name}) (data.packages.${g} or []))
-        (vmProfiles.${profileName} or vmProfiles.server)
+      (vmProfiles.${profileName} or vmProfiles.server)
     );
 
   # VM별 필요한 secrets 디렉토리 정의 (principle of least privilege)
   vmSecretDirs = {
     k8s-master = [
-      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets/k8s";
+        mountPoint = "k8s";
+        tag = "secrets-k8s";
+      }
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
     k8s-worker-1 = [
-      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets/k8s";
+        mountPoint = "k8s";
+        tag = "secrets-k8s";
+      }
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
     k8s-worker-2 = [
-      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets/k8s";
+        mountPoint = "k8s";
+        tag = "secrets-k8s";
+      }
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
     vault = [
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
     jenkins = [
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
     registry = [
-      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+      {
+        source = "/run/secrets-for-users";
+        mountPoint = "users";
+        tag = "secrets-users";
+      }
     ];
   };
 
@@ -62,7 +98,10 @@
   # shell/editor 설정은 modules/nixos/shell.nix, editor.nix를 import하여 처리
   mkVmCommonModule = vmName: {lib, ...}: let
     isK8sVm = lib.hasPrefix "k8s-" vmName;
-    profileName = if isK8sVm then "k8s-node" else "server";
+    profileName =
+      if isK8sVm
+      then "k8s-node"
+      else "server";
   in {
     imports = [
       (baseDir + "/modules/nixos/shell.nix")
@@ -82,20 +121,23 @@
   mkSecretsModule = name: let
     secretDirsForVm = vmSecretDirs.${name} or [];
     vmSecretsPath = specialArgs.vmSecretsPath;
-    secretShares = map (dir: {
-      source = dir.source;
-      mountPoint = "${vmSecretsPath}/${dir.mountPoint}";
-      tag = dir.tag;
-      proto = "virtiofs";
-    }) secretDirsForVm;
+    secretShares =
+      map (dir: {
+        source = dir.source;
+        mountPoint = "${vmSecretsPath}/${dir.mountPoint}";
+        tag = dir.tag;
+        proto = "virtiofs";
+      })
+      secretDirsForVm;
     secretMounts = lib.listToAttrs (map (dir: {
-      name = "${vmSecretsPath}/${dir.mountPoint}";
-      value = {
-        device = dir.tag;
-        fsType = "virtiofs";
-        options = ["ro"];
-      };
-    }) secretDirsForVm);
+        name = "${vmSecretsPath}/${dir.mountPoint}";
+        value = {
+          device = dir.tag;
+          fsType = "virtiofs";
+          options = ["ro"];
+        };
+      })
+      secretDirsForVm);
   in
     lib.optionalAttrs (secretDirsForVm != []) {
       microvm.shares = lib.mkAfter secretShares;
@@ -132,26 +174,30 @@
     baseDir = "/var/lib/microvms/${name}";
     vmInfo = data.vms.definitions.${name};
     hasExistingStorage = vmInfo ? storage;
-    existingMountPoint = if hasExistingStorage then vmInfo.storage.mountPoint else "";
+    existingMountPoint =
+      if hasExistingStorage
+      then vmInfo.storage.mountPoint
+      else "";
     hasKubeletVolume = vmInfo ? kubeletVolume;
     kubeletVolume = vmInfo.kubeletVolume or {};
   in
     lib.optionalAttrs isK8sNode {
       microvm.shares = lib.mkAfter ([
-        {
-          source = "${baseDir}/kubernetes";
-          mountPoint = "/etc/kubernetes";
-          tag = "k8s-config";
-          proto = "virtiofs";
-        }
-      ] ++ lib.optionals (isMaster && existingMountPoint != "/var/lib/etcd") [
-        {
-          source = "${baseDir}/etcd";
-          mountPoint = "/var/lib/etcd";
-          tag = "k8s-etcd";
-          proto = "virtiofs";
-        }
-      ]);
+          {
+            source = "${baseDir}/kubernetes";
+            mountPoint = "/etc/kubernetes";
+            tag = "k8s-config";
+            proto = "virtiofs";
+          }
+        ]
+        ++ lib.optionals (isMaster && existingMountPoint != "/var/lib/etcd") [
+          {
+            source = "${baseDir}/etcd";
+            mountPoint = "/var/lib/etcd";
+            tag = "k8s-etcd";
+            proto = "virtiofs";
+          }
+        ]);
 
       microvm.volumes = lib.mkIf hasKubeletVolume (lib.mkAfter [
         {
@@ -163,19 +209,21 @@
         }
       ]);
 
-      fileSystems = {
-        "/etc/kubernetes" = {
-          device = "k8s-config";
-          fsType = "virtiofs";
-          neededForBoot = true;
+      fileSystems =
+        {
+          "/etc/kubernetes" = {
+            device = "k8s-config";
+            fsType = "virtiofs";
+            neededForBoot = true;
+          };
+        }
+        // lib.optionalAttrs (isMaster && existingMountPoint != "/var/lib/etcd") {
+          "/var/lib/etcd" = {
+            device = "k8s-etcd";
+            fsType = "virtiofs";
+            neededForBoot = true;
+          };
         };
-      } // lib.optionalAttrs (isMaster && existingMountPoint != "/var/lib/etcd") {
-        "/var/lib/etcd" = {
-          device = "k8s-etcd";
-          fsType = "virtiofs";
-          neededForBoot = true;
-        };
-      };
     };
 
   # SSH 호스트 키 영구 저장 모듈
@@ -230,7 +278,6 @@
       neededForBoot = true;
     };
   };
-
 in {
   config = {
     # MicroVM 호스트 기능 활성화

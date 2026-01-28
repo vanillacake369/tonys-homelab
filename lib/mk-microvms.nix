@@ -7,7 +7,6 @@
   baseDir,
   pkgs,
 }: {config, ...}: let
-  hostConfig = config;
   # 전체 VM 타겟 목록
   allTargets = builtins.attrNames homelabConstants.vms;
   # 필요 시 특정 VM만 필터링
@@ -16,29 +15,46 @@
     then allTargets
     else builtins.filter (name: builtins.elem name specialArgs.microvmTargets) allTargets;
 
-  # VM별 필요한 secrets 정의 (principle of least privilege)
-  # sops.nix의 secret 이름과 일치해야 함 (예: "k8s/joinToken", "rootPassword")
-  vmSecrets = {
-    k8s-master = ["k8s/joinToken" "rootPassword"];
-    k8s-worker-1 = ["k8s/joinToken" "rootPassword"];
-    k8s-worker-2 = ["k8s/joinToken" "rootPassword"];
-    vault = ["rootPassword"];
-    jenkins = ["rootPassword"];
-    registry = ["rootPassword"];
+  # 호스트 SSH 공개키 (homelab-constants.nix에서 정의)
+  # VM root 사용자의 authorized_keys에 추가됨
+  hostSshPubKey = homelabConstants.hosts.${homelabConstants.defaultHost}.sshPubKey or null;
+
+  # VM별 필요한 secrets 디렉토리 정의 (principle of least privilege)
+  # virtiofs는 디렉토리만 공유 가능 (파일 직접 공유 불가)
+  # 각 항목은 { source, mountPoint, tag } 형태
+  vmSecretDirs = {
+    k8s-master = [
+      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
+    k8s-worker-1 = [
+      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
+    k8s-worker-2 = [
+      {source = "/run/secrets/k8s"; mountPoint = "k8s"; tag = "secrets-k8s";}
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
+    vault = [
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
+    jenkins = [
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
+    registry = [
+      {source = "/run/secrets-for-users"; mountPoint = "users"; tag = "secrets-users";}
+    ];
   };
 
   # VM에 전달할 추가 인자 확장
-  vmSpecialArgs =
-    specialArgs
-    // {
-      hostSshKeys = hostConfig.users.users.${homelabConstants.hosts.${homelabConstants.defaultHost}.username}.openssh.authorizedKeys.keys;
-    };
+  vmSpecialArgs = specialArgs;
 
   # VM 이름 → 설정 파일 경로 매핑
   vmConfigPath = name: baseDir + "/vms/${name}.nix";
 
-  # VM 공통 모듈 생성: 쉘 및 사용자 비밀번호
-  mkVmCommonModule = sshKey: {lib, ...}: {
+  # VM 공통 모듈 생성: 쉘, SSH 키, 사용자 비밀번호
+  # 호스트의 SSH 공개키는 homelab-constants.nix에서 정의
+  mkVmCommonModule = {lib, ...}: {
     environment.systemPackages = with pkgs; [
       vim
       git
@@ -72,37 +88,39 @@
     };
     users.users.root = {
       shell = pkgs.zsh;
-      openssh.authorizedKeys.keys = lib.optional (sshKey != "") sshKey;
+      # SSH 공개키는 homelab-constants.nix에서 하드코딩된 값 사용
+      openssh.authorizedKeys.keys = lib.optional (hostSshPubKey != null) hostSshPubKey;
       # Password is loaded from sops secret shared via virtiofs
-      hashedPasswordFile = "${specialArgs.vmSecretsPath}/rootPassword";
+      # users/ 디렉토리가 마운트되므로 users/rootPassword 경로 사용
+      hashedPasswordFile = "${specialArgs.vmSecretsPath}/users/rootPassword";
     };
   };
 
-  # Secrets 공유 모듈 생성
-  # secret 이름에 "/" 포함 시 tag에서 "-"로 치환 (virtiofs tag 규칙)
+  # Secrets 디렉토리 공유 모듈 생성
+  # virtiofs는 디렉토리만 공유 가능하므로 디렉토리 단위로 마운트
   mkSecretsModule = name: let
-    secretsForVm = vmSecrets.${name} or [];
+    secretDirsForVm = vmSecretDirs.${name} or [];
     vmSecretsPath = specialArgs.vmSecretsPath;
-    mkTag = secret: "secret-${builtins.replaceStrings ["/"] ["-"] secret}";
-    secretShares = map (secret: {
-      source = "/run/secrets/${secret}";
-      mountPoint = "${vmSecretsPath}/${secret}";
-      tag = mkTag secret;
+    secretShares = map (dir: {
+      source = dir.source;
+      mountPoint = "${vmSecretsPath}/${dir.mountPoint}";
+      tag = dir.tag;
       proto = "virtiofs";
-    }) secretsForVm;
-    secretMounts = lib.listToAttrs (map (secret: {
-      name = "${vmSecretsPath}/${secret}";
+    }) secretDirsForVm;
+    secretMounts = lib.listToAttrs (map (dir: {
+      name = "${vmSecretsPath}/${dir.mountPoint}";
       value = {
-        device = mkTag secret;
+        device = dir.tag;
         fsType = "virtiofs";
         options = ["ro"];
       };
-    }) secretsForVm);
+    }) secretDirsForVm);
   in
-    lib.optionalAttrs (secretsForVm != []) {
+    lib.optionalAttrs (secretDirsForVm != []) {
       microvm.shares = lib.mkAfter secretShares;
       fileSystems = secretMounts;
     };
+
 in {
   config = {
     # MicroVM 호스트 기능 활성화
@@ -118,7 +136,7 @@ in {
           config = {
             imports = [
               (vmConfigPath name)
-              (mkVmCommonModule specialArgs.sshPublicKey)
+              mkVmCommonModule
               (mkSecretsModule name)
             ];
           };

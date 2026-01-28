@@ -1,3 +1,4 @@
+# SSH configuration for host
 _: {
   services.openssh = {
     enable = true;

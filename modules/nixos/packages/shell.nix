@@ -153,9 +153,18 @@ in {
   };
 
   environment.systemPackages = with pkgs; [
+    # zsh plugins
     oh-my-zsh
     zsh-powerlevel10k
     zsh-autoenv
+    # shell utilities
+    bat
+    ripgrep
     fzf
+    jq
+    tree
+    moreutils
+    curl
+    xclip
   ];
 }

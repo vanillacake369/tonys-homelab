@@ -30,9 +30,6 @@
     ./modules/nixos/host/sops.nix
     ./modules/nixos/host/microvm-storage.nix
     ./modules/nixos/host/packages.nix
-
-    # K8s node configuration (host as potential k8s node)
-    ./modules/nixos/vm/k8s-node.nix
   ];
 
   nixpkgs.config.allowUnfree = true;

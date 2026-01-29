@@ -12,7 +12,7 @@
   vlan = data.network.vlans.${vmInfo.vlan};
 in {
   imports = [
-    ../modules/nixos/k8s-node.nix
+    ../modules/nixos/vm/k8s-node.nix
   ];
 
   # User configuration

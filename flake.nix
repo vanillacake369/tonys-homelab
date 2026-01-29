@@ -36,7 +36,6 @@
 
     # Pure data layer: 단일 데이터 소스
     data = {
-      packages = import ./lib/data/packages.nix;
       network = import ./lib/data/network.nix;
       vms = import ./lib/data/vms.nix;
       hosts = import ./lib/data/hosts.nix;
@@ -93,7 +92,7 @@
     hostModules = [
       inputs.microvm.nixosModules.host
       inputs.disko.nixosModules.disko
-      ./modules/nixos/sops.nix
+      ./modules/nixos/host/sops.nix
       ./configuration.nix
       mkMicroVMs
     ];

@@ -9,7 +9,7 @@
   vlan = data.network.vlans.${vmInfo.vlan};
 in {
   imports = [
-    ../modules/nixos/vm-base.nix
+    ../modules/nixos/vm/base.nix
   ];
 
   # User configuration

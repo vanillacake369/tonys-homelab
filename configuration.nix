@@ -17,23 +17,22 @@
     # Disko disk partitioning
     ./disko-config.nix
 
-    # System modules (NixOS only)
-    ./modules/nixos/boot.nix
-    ./modules/nixos/locale.nix
-    ./modules/nixos/network.nix
-    ./modules/nixos/ssh.nix
-    ./modules/nixos/sops.nix
-    ./modules/nixos/nix-settings.nix
-    ./modules/nixos/users.nix
-    ./modules/nixos/microvm-storage.nix
-    ./modules/nixos/tailscale.nix
-    ./modules/nixos/amdgpu.nix
-    ./modules/nixos/k8s-node.nix
-    # HM 대체 모듈
-    ./modules/nixos/shell.nix
-    ./modules/nixos/editor.nix
-    ./modules/nixos/user-tools.nix
-    ./modules/nixos/host-packages.nix
+    # Host-specific modules
+    ./modules/nixos/host/boot.nix
+    ./modules/nixos/host/locale.nix
+    ./modules/nixos/host/network.nix
+    ./modules/nixos/host/ssh.nix
+    ./modules/nixos/host/nix-settings.nix
+    ./modules/nixos/host/users.nix
+    ./modules/nixos/host/tailscale.nix
+    ./modules/nixos/host/amdgpu.nix
+    ./modules/nixos/host/user-tools.nix
+    ./modules/nixos/host/sops.nix
+    ./modules/nixos/host/microvm-storage.nix
+    ./modules/nixos/host/packages.nix
+
+    # K8s node configuration (host as potential k8s node)
+    ./modules/nixos/vm/k8s-node.nix
   ];
 
   nixpkgs.config.allowUnfree = true;

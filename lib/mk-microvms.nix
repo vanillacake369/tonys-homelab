@@ -18,18 +18,6 @@
   # 호스트 SSH 공개키
   hostSshPubKey = data.hosts.definitions.${data.hosts.default}.sshPubKey or null;
 
-  # VM 프로필별 그룹 목록
-  vmProfiles = {
-    k8s-node = ["core" "shell" "editor" "network" "monitoring" "k8s" "hardware"];
-    server = ["core" "shell" "editor" "network" "monitoring" "dev" "hardware"];
-  };
-
-  resolvePackages = profileName:
-    builtins.concatLists (
-      map (g: map (name: pkgs.${name}) (data.packages.${g} or []))
-      (vmProfiles.${profileName} or vmProfiles.server)
-    );
-
   # VM별 필요한 secrets 디렉토리 정의 (principle of least privilege)
   vmSecretDirs = {
     k8s-master = [
@@ -94,22 +82,9 @@
   # VM 이름 → 설정 파일 경로 매핑
   vmConfigPath = name: baseDir + "/vms/${name}.nix";
 
-  # VM 공통 모듈 생성: 패키지, SSH 키, 사용자 비밀번호
-  # shell/editor 설정은 modules/nixos/shell.nix, editor.nix를 import하여 처리
-  mkVmCommonModule = vmName: {lib, ...}: let
-    isK8sVm = lib.hasPrefix "k8s-" vmName;
-    profileName =
-      if isK8sVm
-      then "k8s-node"
-      else "server";
-  in {
-    imports = [
-      (baseDir + "/modules/nixos/shell.nix")
-      (baseDir + "/modules/nixos/editor.nix")
-    ];
-
-    environment.systemPackages = resolvePackages profileName;
-
+  # VM 공통 모듈 생성: SSH 키, 사용자 비밀번호
+  # 패키지는 각 VM 설정 파일에서 import하는 모듈들이 처리
+  mkVmCommonModule = vmName: {lib, ...}: {
     users.users.root = {
       shell = pkgs.zsh;
       openssh.authorizedKeys.keys = lib.optional (hostSshPubKey != null) hostSshPubKey;

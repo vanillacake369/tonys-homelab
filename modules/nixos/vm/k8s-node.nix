@@ -15,6 +15,15 @@
   # 호스트: microvmTarget 없음 → br_netfilter 비활성화 (VM 브릿지 충돌 방지)
   isVM = microvmTarget != null;
 in {
+  imports = [
+    ../packages/base.nix
+    ../packages/shell.nix
+    ../packages/editor.nix
+    ../packages/monitoring.nix
+    ../packages/network-tools.nix
+    ../packages/hardware-diag.nix
+  ];
+
   # ============================================================
   # 커널 모듈 및 sysctl
   # ============================================================
@@ -81,12 +90,17 @@ in {
 
     serviceConfig = {
       EnvironmentFile = "-/var/lib/kubelet/kubeadm-flags.env";
-      ExecStart = pkgs.writeShellScript "kubelet-start" ''
+      ExecStart = let
+        # 호스트: swap 허용 (--fail-swap-on=false)
+        # VM: swap 없음 (기본값)
+        swapFlag = lib.optionalString (!isVM) "--fail-swap-on=false";
+      in pkgs.writeShellScript "kubelet-start" ''
         export PATH=${pkgs.util-linux}/bin:${pkgs.e2fsprogs}/bin:${pkgs.kmod}/bin:$PATH
         exec ${pkgs.kubernetes}/bin/kubelet \
           --config=/var/lib/kubelet/config.yaml \
           --kubeconfig=/etc/kubernetes/kubelet.conf \
           --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf \
+          ${swapFlag} \
           $KUBELET_KUBEADM_ARGS
       '';
       Restart = "always";
@@ -108,7 +122,7 @@ in {
   ];
 
   # ============================================================
-  # 필수 패키지
+  # 필수 패키지 (K8s 전용)
   # ============================================================
   environment.systemPackages = with pkgs; [
     kubernetes # kubeadm, kubectl, kubelet
@@ -118,9 +132,7 @@ in {
     socat # kubectl port-forward
     iptables
     iproute2
-    curl
     jq
-    bind # nslookup
   ];
 
   # ============================================================

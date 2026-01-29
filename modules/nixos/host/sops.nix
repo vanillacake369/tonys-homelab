@@ -17,9 +17,6 @@ in {
     # 동적 시크릿 -> users
     secrets =
       {
-        "k8s/joinToken" = {
-          mode = "0444";
-        };
         "tailscale/clientSecret" = {};
         # Root password for all systems
         "rootPassword" = {

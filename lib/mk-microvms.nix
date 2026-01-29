@@ -19,13 +19,9 @@
   hostSshPubKey = data.hosts.definitions.${data.hosts.default}.sshPubKey or null;
 
   # VM별 필요한 secrets 디렉토리 정의 (principle of least privilege)
+  # Note: k8s joinToken은 kubeadm이 생성하므로 외부 주입 불필요
   vmSecretDirs = {
     k8s-master = [
-      {
-        source = "/run/secrets/k8s";
-        mountPoint = "k8s";
-        tag = "secrets-k8s";
-      }
       {
         source = "/run/secrets-for-users";
         mountPoint = "users";
@@ -34,22 +30,12 @@
     ];
     k8s-worker-1 = [
       {
-        source = "/run/secrets/k8s";
-        mountPoint = "k8s";
-        tag = "secrets-k8s";
-      }
-      {
         source = "/run/secrets-for-users";
         mountPoint = "users";
         tag = "secrets-users";
       }
     ];
     k8s-worker-2 = [
-      {
-        source = "/run/secrets/k8s";
-        mountPoint = "k8s";
-        tag = "secrets-k8s";
-      }
       {
         source = "/run/secrets-for-users";
         mountPoint = "users";

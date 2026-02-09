@@ -47,6 +47,18 @@
     }
   ) vms;
 in {
+  # Wake-on-LAN 활성화 (ethtool로 설정)
+  systemd.services.wol = {
+    description = "Enable Wake-on-LAN";
+    after = ["network.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "/run/current-system/sw/bin/ethtool -s enp1s0 wol g";
+    };
+    wantedBy = ["multi-user.target"];
+  };
+
   # 기본 네트워크 설정
   networking = {
     hostName = data.hosts.definitions.${data.hosts.default}.hostname;

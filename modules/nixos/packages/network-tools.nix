@@ -7,5 +7,6 @@
     bind # dig, nslookup
     tcpdump
     nftables
+    ethtool
   ];
 }

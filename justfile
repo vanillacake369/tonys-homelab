@@ -43,6 +43,10 @@ target := ```
 check:
     nix flake check --impure --all-systems --show-trace
 
+# Run boot safety VM test
+test-boot:
+    nix build .#checks.x86_64-linux.boot-safety -L
+
 _colmena cmd on_flag="" extra_flags="" microvm_targets="":
     #!/usr/bin/env bash
     set -euo pipefail

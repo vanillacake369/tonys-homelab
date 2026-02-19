@@ -105,6 +105,11 @@
     # Nix 포매터 지정 (alejandra)
     formatter = forAllSystems (sys: inputs.nixpkgs.legacyPackages.${sys}.alejandra);
 
+    # VM 통합 테스트
+    checks.${mainSystem} = {
+      boot-safety = pkgs.testers.nixosTest (import ./tests/boot-safety.nix);
+    };
+
     # NixOS 구성
     # - VM 빌드 제어: MICROVM_TARGETS 환경변수 사용
     #   - "all" 또는 미설정: 모든 VM 빌드

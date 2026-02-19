@@ -19,6 +19,7 @@
 
     # Host-specific modules
     ./modules/nixos/host/boot.nix
+    ./modules/nixos/host/boot-health-check.nix
     ./modules/nixos/host/locale.nix
     ./modules/nixos/host/network.nix
     ./modules/nixos/host/ssh.nix
@@ -31,6 +32,9 @@
     ./modules/nixos/host/microvm-storage.nix
     ./modules/nixos/host/packages.nix
   ];
+
+  # Boot safety: auto-rollback on failed deployments
+  services.boot-health-check.enable = true;
 
   nixpkgs.config.allowUnfree = true;
 

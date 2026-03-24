@@ -6,6 +6,9 @@
   modulesPath,
   ...
 }: {
+  documentation.man.enable = true;
+  documentation.man.generateCaches = true;
+
   imports = [
     # 시스템에 설치된 커널 모듈 중
     # NixOS가 자동으로 감지하지 못했을 하드웨어 드라이버들을 보완

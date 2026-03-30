@@ -19,12 +19,12 @@
   isVM = microvmTarget != null;
 in {
   imports = [
-    ../packages/base.nix
-    ../packages/shell.nix
-    ../packages/editor.nix
-    ../packages/monitoring.nix
-    ../packages/network-tools.nix
-    ../packages/hardware-diag.nix
+    ../nixos/packages/base.nix
+    ../nixos/packages/shell.nix
+    ../nixos/packages/editor.nix
+    ../nixos/packages/monitoring.nix
+    ../nixos/packages/network-tools.nix
+    ../nixos/packages/hardware-diag.nix
   ];
 
   # ============================================================

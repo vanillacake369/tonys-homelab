@@ -4,20 +4,20 @@
 # Single source of truth: lib/data/*.nix
 
 # Helper: import data from flake
-_data := 'let data = import ./lib/data; in'
+_data := 'let data = import ./data; in'
 
 ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
-deploy_user := `nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.definitions.homelab.deployment.targetUser'`
+deploy_user := `nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.definitions.homelab.deployment.targetUser'`
 
 # Host/VM lists from data layer (SSOT)
-default_host := `nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.default'`
-host_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " (builtins.attrNames data.hosts.definitions)'`
-vm_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " data.vms.order'`
-vm_tag_list := `nix eval --impure --raw --expr 'let data = import ./lib/data; in builtins.concatStringsSep " " data.vms.tagList'`
+default_host := `nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.default'`
+host_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " (builtins.attrNames data.hosts.definitions)'`
+vm_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " data.vms.order'`
+vm_tag_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " data.vms.tagList'`
 target := ```
-  lan_ip=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.host')
-  ts_ip=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.tailscale.host')
-  user=$(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.hosts.definitions.homelab.deployment.targetUser')
+  lan_ip=$(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.host')
+  ts_ip=$(nix eval --impure --raw --expr 'let data = import ./data; in data.network.tailscale.host')
+  user=$(nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.definitions.homelab.deployment.targetUser')
 
   # 1) LAN: direct SSH (fastest, fewer hops)
   if [ -n "$lan_ip" ] && ssh -o ConnectTimeout=2 -o BatchMode=yes "${user}@${lan_ip}" true 2>/dev/null; then
@@ -89,7 +89,7 @@ _vm_ssh ip:
     ssh -J {{ deploy_user }}@{{ target }} root@{{ ip }}
 
 _vm_ip vm:
-    @nix eval --impure --raw --expr 'let data = import ./lib/data; in data.vms.definitions."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
+    @nix eval --impure --raw --expr 'let data = import ./data; in data.vms.definitions."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
 
 # Build configuration locally (dry-run)
 # Usage:
@@ -143,17 +143,17 @@ show-config:
     set -euo pipefail
     echo "=== SSH Connection ==="
     echo "Detected Host: {{ target }}"
-    echo "WAN IP:        $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.host')"
+    echo "WAN IP:        $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.host')"
     echo "Source:        ~/.ssh/config (auto-detected)"
     echo ""
     echo "=== Network Configuration ==="
-    echo "WAN Network:   $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.network')"
-    echo "WAN Gateway:   $(nix eval --impure --raw --expr 'let data = import ./lib/data; in data.network.wan.gateway')"
+    echo "WAN Network:   $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.network')"
+    echo "WAN Gateway:   $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.gateway')"
     echo ""
     echo "=== VM IP Addresses ==="
     for vm in {{ vm_list }}; do
         ip=$(just _vm_ip "$vm")
-        vlan=$(nix eval --impure --raw --expr "let data = import ./lib/data; in data.vms.definitions.\"$vm\".vlan")
+        vlan=$(nix eval --impure --raw --expr "let data = import ./data; in data.vms.definitions.\"$vm\".vlan")
         printf "%-20s %s (VLAN: %s)\n" "$vm:" "$ip" "$vlan"
     done
 
@@ -307,7 +307,7 @@ vm-setup-storage:
     #!/usr/bin/env bash
     set -euo pipefail
     storage_paths=$(nix eval --impure --raw --expr '
-      let data = import ./lib/data;
+      let data = import ./data;
       in builtins.concatStringsSep " " (
         builtins.filter (x: x != "")
           (builtins.attrValues (builtins.mapAttrs

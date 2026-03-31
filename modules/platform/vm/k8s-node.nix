@@ -9,13 +9,17 @@
   isVM = microvmTarget != null;
 in {
   imports = [
-    ../nixos/packages/base.nix
-    ../nixos/packages/shell.nix
-    ../nixos/packages/editor.nix
-    ../nixos/packages/monitoring.nix
-    ../nixos/packages/network-tools.nix
-    ../nixos/packages/hardware-diag.nix
+    ../../common/system.nix # Path: modules/platform/vm/../../common/system.nix -> modules/common/system.nix
   ];
+
+  # Enable common features for K8s nodes
+  my.common = {
+    terminal.enable = true;
+    monitoring.enable = true;
+    network.enable = true;
+    editor.enable = true;
+    dev.enable = true;
+  };
 
   # ============================================================
   # 커널 모듈 및 sysctl

@@ -1,9 +1,9 @@
 {pkgs, lib, data, ...}: {
   imports = [
-    ../modules/profiles/vm-base.nix
-    ../modules/profiles/vm-persistent.nix
-    ../modules/profiles/vm-common.nix
-    ../modules/profiles/k8s-node.nix
-    ../modules/profiles/k8s-worker.nix
+    ../modules/platform/vm/base.nix
+    ../modules/platform/vm/persistent.nix
+    ../modules/platform/vm/common.nix
+    ../modules/platform/vm/k8s-node.nix
+    ../modules/platform/vm/k8s-worker.nix
   ];
 }

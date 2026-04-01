@@ -15,7 +15,7 @@ jobs:
       - uses: ./.github/actions/nix-setup
         with:
           git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
-      - uses: tailscale/github-action@v4.1.1
+      - uses: tailscale/github-action@v4.1.2
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}

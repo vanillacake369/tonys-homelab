@@ -1,474 +1,91 @@
-# Tony's Homelab - Justfile
-# Development and Production deployment recipes
-# Variables dynamically evaluated from Nix data layer
-# Single source of truth: lib/data/*.nix
+# Tony's Homelab - High Efficiency Justfile (Self-contained)
+# Single source of truth for all operations
 
-# Helper: import data from flake
-_data := 'let data = import ./data; in'
+# Data Extraction (SSOT)
+_nix_eval expr:
+    @nix eval --impure --raw --expr 'let d = import ./data; in {{ expr }}'
 
-ssh_public_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error: Missing secrets/ssh-public-key.txt" >&2; exit 1; fi`
-deploy_user := `nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.definitions.homelab.deployment.targetUser'`
+vms         := `nix eval --impure --raw --expr 'let d = import ./data; in builtins.concatStringsSep " " d.vms.order'`
+target      := `nix eval --impure --raw --expr 'let d = import ./data; in d.network.wan.host'`
+deploy_user := `nix eval --impure --raw --expr 'let d = import ./data; in d.hosts.definitions.homelab.deployment.targetUser'`
+ssh_pub_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error" >&2; exit 1; fi`
 
-# Host/VM lists from data layer (SSOT)
-default_host := `nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.default'`
-host_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " (builtins.attrNames data.hosts.definitions)'`
-vm_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " data.vms.order'`
-vm_tag_list := `nix eval --impure --raw --expr 'let data = import ./data; in builtins.concatStringsSep " " data.vms.tagList'`
-target := ```
-  lan_ip=$(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.host')
-  ts_ip=$(nix eval --impure --raw --expr 'let data = import ./data; in data.network.tailscale.host')
-  user=$(nix eval --impure --raw --expr 'let data = import ./data; in data.hosts.definitions.homelab.deployment.targetUser')
-
-  # 1) LAN: direct SSH (fastest, fewer hops)
-  if [ -n "$lan_ip" ] && ssh -o ConnectTimeout=2 -o BatchMode=yes "${user}@${lan_ip}" true 2>/dev/null; then
-    echo "$lan_ip"
-    exit 0
-  fi
-
-  # 2) Tailscale IP fallback (works from anywhere)
-  if [ -n "$ts_ip" ] && ssh -o ConnectTimeout=3 -o BatchMode=yes "${user}@${ts_ip}" true 2>/dev/null; then
-    echo "$ts_ip"
-    exit 0
-  fi
-
-  echo "Error: Cannot reach homelab via LAN ($lan_ip) or Tailscale ($ts_ip)" >&2
-  exit 1
-```
-
-# =============================================================================
-# Development Commands (Local Testing)
-# =============================================================================
-
-# Check flake configuration for errors
-check:
-    nix flake check --impure --all-systems --show-trace
-
-_colmena cmd on_flag="" extra_flags="" microvm_targets="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    DEPLOY_TARGET="{{ target }}" MICROVM_TARGETS="{{ microvm_targets }}" SSH_PUB_KEY="{{ ssh_public_key }}" \
-        nix run --impure .#colmena -- {{ cmd }} {{ extra_flags }} {{ on_flag }} --show-trace
-
+# Internal Helpers
 _ssh cmd:
-    ssh {{ deploy_user }}@{{ target }} "{{ cmd }}"
+    @ssh {{ deploy_user }}@{{ target }} "{{ cmd }}"
 
-_microvm_action action vm:
-    just _ssh "sudo systemctl {{ action }} microvm@{{ vm }}"
-
-_microvm_status:
-    just _ssh "systemctl list-units 'microvm@*' --no-pager"
-
-_microvm_wait_running:
+# Deployment Helper
+_run cmd on="" targets="all":
     #!/usr/bin/env bash
     set -euo pipefail
-    MAX_RETRIES=20
-    echo "⏳ Waiting for VMs to respond to ping..."
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        ALL_UP=true
-        for vm in {{ vm_list }}; do
-            ip=$(just _vm_ip "$vm")
-            if ! ssh {{ deploy_user }}@{{ target }} "ping -c 1 -W 1 $ip >/dev/null 2>&1"; then
-                ALL_UP=false
-                break
-            fi
-        done
-        if $ALL_UP; then
-            echo "✅ All VMs are responding."
-            exit 0
-        fi
-        if [ "$i" -eq "$MAX_RETRIES" ]; then
-            echo "⚠️  Some VMs are not responding after ${MAX_RETRIES} attempts."
-            just vm-ping
-            exit 1
-        fi
-        echo "... waiting ($i/$MAX_RETRIES)"
-        sleep 2
-    done
+    ON="{{ on }}"
+    if [ -z "$ON" ]; then ON="homelab"; fi
+    DEPLOY_TARGET="{{ target }}" MICROVM_TARGETS="{{ targets }}" SSH_PUB_KEY="{{ ssh_pub_key }}" \
+        nix run --impure .#colmena -- {{ cmd }} --on "$ON" --impure --show-trace
 
-_vm_ssh ip:
-    ssh -J {{ deploy_user }}@{{ target }} root@{{ ip }}
+# -----------------------------------------------------------------------------
+# 1. Deployment & Sync
+# -----------------------------------------------------------------------------
 
-_vm_ip vm:
-    @nix eval --impure --raw --expr 'let data = import ./data; in data.vms.definitions."{{ vm }}".ip' 2>/dev/null || { echo "Unknown VM: {{ vm }}" >&2; exit 1; }
+# Sync entire infrastructure (Server + All VMs)
+up:
+    @just _run apply
 
-# Build configuration locally (dry-run)
-# Usage:
-#   just build all                    # 전체 빌드 (server + 모든 VM)
-#   just build server                 # 서버만 빌드 (VM 설정 포함)
-#   just build server --no-vm         # 서버만 빌드 (VM 설정 제외)
-#   just build vm                     # 모든 VM 빌드
-#   just build vm vault               # 특정 VM 빌드
-#   just build vm k8s                 # K8S 클러스터 빌드 (태그)
-build type="server" name="":
+# Sync specific target (e.g., just sync k8s-master-1)
+sync name:
+    @just _run apply --on {{ name }} --targets {{ name }}
+
+# -----------------------------------------------------------------------------
+# 2. Management & Control
+# -----------------------------------------------------------------------------
+
+# List all running units (VMs + Network)
+ls:
+    @echo "--- MicroVM Units ---"
+    @just _ssh "systemctl list-units 'microvm@*' --no-pager"
+    @echo ""
+    @echo "--- Network Status ---"
+    @just _ssh "networkctl list"
+
+# Control VM lifecycle (e.g., just vm stop k8s-worker-1 / just vm start all)
+vm action name="all":
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{ type }}" in
-        all)
-            echo "🚀 Building server: {{ default_host }}"
-            just _colmena build "--on {{ default_host }}" "--impure" "none"
-            for vm in {{ vm_list }}; do
-                echo "🚀 Building VM: $vm"
-                just _colmena build "--on $vm" "--impure" "$vm"
-            done
-            ;;
-        server)
-            if [ "{{ name }}" = "--no-vm" ]; then
-                just _colmena build "--on {{ default_host }}" "--impure" "none"
-            else
-                just _colmena build "--on {{ default_host }}" "--impure" "all"
-            fi
-            ;;
-        vm)
-            if [ -z "{{ name }}" ]; then
-                just _colmena build "--on @$(echo '{{ vm_tag_list }}' | tr ' ' ',')" "--impure" ""
-            elif [ "{{ name }}" = "k8s" ]; then
-                just _colmena build "--on @k8s" "--impure" ""
-            else
-                just _colmena build "--on {{ name }}" "--impure" "{{ name }}"
-            fi
-            ;;
-        *)
-            echo "Usage: just build [all|server [--no-vm]|vm [name|k8s]]" >&2
-            exit 1
-            ;;
-    esac
-
-# Update flake inputs
-update:
-    nix flake update
-
-# Show current infrastructure values
-show-config:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "=== SSH Connection ==="
-    echo "Detected Host: {{ target }}"
-    echo "WAN IP:        $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.host')"
-    echo "Source:        ~/.ssh/config (auto-detected)"
-    echo ""
-    echo "=== Network Configuration ==="
-    echo "WAN Network:   $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.network')"
-    echo "WAN Gateway:   $(nix eval --impure --raw --expr 'let data = import ./data; in data.network.wan.gateway')"
-    echo ""
-    echo "=== VM IP Addresses ==="
-    for vm in {{ vm_list }}; do
-        ip=$(just _vm_ip "$vm")
-        vlan=$(nix eval --impure --raw --expr "let data = import ./data; in data.vms.definitions.\"$vm\".vlan")
-        printf "%-20s %s (VLAN: %s)\n" "$vm:" "$ip" "$vlan"
-    done
-
-# =============================================================================
-# Production Deployment
-# =============================================================================
-# Deploy configuration via Colmena
-# Usage:
-#   just deploy all                    # 전체 배포 (server + 모든 VM)
-#   just deploy server                 # 서버만 배포 (VM 설정 포함)
-#   just deploy server --no-vm         # 서버만 배포 (VM 설정 제외)
-#   just deploy vm                     # 모든 VM 배포
-#   just deploy vm vault               # 특정 VM 배포
-#   just deploy vm k8s                 # K8S 클러스터 배포 (태그)
-deploy type="server" name="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{ type }}" in
-        all)
-            echo "🚀 Applying server: {{ default_host }}"
-            just _colmena apply "--on {{ default_host }}" "--verbose --impure" "none"
-            for vm in {{ vm_list }}; do
-                echo "🚀 Applying VM: $vm"
-                just _colmena apply "--on $vm" "--verbose --impure" "$vm"
-            done
-            ;;
-        server)
-            if [ "{{ name }}" = "--no-vm" ]; then
-                just _colmena apply "--on {{ default_host }}" "--verbose --impure" "none"
-            else
-                just _colmena apply "--on {{ default_host }}" "--verbose --impure" "all"
-            fi
-            ;;
-        vm)
-            if [ -z "{{ name }}" ]; then
-                just _colmena apply "--on @$(echo '{{ vm_tag_list }}' | tr ' ' ',')" "--verbose --impure" ""
-            elif [ "{{ name }}" = "k8s" ]; then
-                just _colmena apply "--on @k8s" "--verbose --impure" ""
-            else
-                just _colmena apply "--on {{ name }}" "--verbose --impure" "{{ name }}"
-            fi
-            ;;
-        *)
-            echo "Usage: just deploy [all|server [--no-vm]|vm [name|k8s]]" >&2
-            exit 1
-            ;;
-    esac
-
-# =============================================================================
-# MicroVM Management
-# =============================================================================
-
-# Show all VMs status
-vm-status:
-    just _microvm_status
-
-# Start VM(s)
-# Usage:
-#   just vm-start vault          # 특정 VM 시작
-#   just vm-start all            # 모든 VM 시작
-vm-start vm:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{ vm }}" = "all" ]; then
-        echo "🟢 Starting all MicroVMs on {{ target }}..."
-        for vm in {{ vm_list }}; do
-            echo "  Starting microvm@$vm..."
-            ssh {{ deploy_user }}@{{ target }} "sudo systemctl start microvm@$vm" &
+    if [ "{{ name }}" = "all" ]; then
+        echo "🔄 Action '{{ action }}' on ALL MicroVMs..."
+        for vm in {{ vms }}; do
+            echo "  {{ action }} microvm@$vm..."
+            ssh {{ deploy_user }}@{{ target }} "sudo systemctl {{ action }} microvm@$vm" &
         done
         wait
-        echo "⏳ Waiting for VMs to stabilize..."
-        just _microvm_wait_running
-        just vm-status
     else
-        just _microvm_action start {{ vm }}
+        echo "🚀 {{ action }} microvm@{{ name }}..."
+        ssh {{ deploy_user }}@{{ target }} "sudo systemctl {{ action }} microvm@{{ name }}"
     fi
-
-# Stop VM(s)
-# Usage:
-#   just vm-stop vault           # 특정 VM 중지
-#   just vm-stop all             # 모든 VM 중지
-vm-stop vm:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{ vm }}" = "all" ]; then
-        echo "🛑 Stopping all MicroVMs..."
-        for vm in {{ vm_list }}; do
-            echo "  Stopping microvm@$vm..."
-            ssh {{ deploy_user }}@{{ target }} "sudo systemctl stop microvm@$vm" &
-        done
-        wait
-        echo "⏳ Waiting for VMs to stop..."
-        sleep 3
-        echo "✓ All VMs stopped"
-        just vm-status
-    else
-        just _microvm_action stop {{ vm }}
-    fi
-
-# Restart VM(s)
-# Usage:
-#   just vm-restart vault        # 특정 VM 재시작
-#   just vm-restart all          # 모든 VM 재시작
-vm-restart vm:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{ vm }}" = "all" ]; then
-        echo "🔄 Restarting all MicroVMs on {{ target }}..."
-        for vm in {{ vm_list }}; do
-            echo "  Restarting microvm@$vm..."
-            ssh {{ deploy_user }}@{{ target }} "sudo systemctl restart microvm@$vm" &
-        done
-        wait
-        echo "⏳ Waiting for VMs to stabilize..."
-        just _microvm_wait_running
-        just vm-status
-    else
-        just _microvm_action restart {{ vm }}
-    fi
-
-# View VM logs (follow mode)
-vm-logs vm:
-    just _ssh "journalctl -u microvm@{{ vm }} -f"
 
 # Access VM console (Ctrl-A, X to exit)
-vm-console vm:
-    ssh {{ deploy_user }}@{{ target }} -t "sudo microvm console {{ vm }}"
+console name:
+    @ssh {{ deploy_user }}@{{ target }} -t "sudo microvm console {{ name }}"
 
-# SSH into a VM by name
-vm-ssh vm:
-    just _vm_ssh $(just _vm_ip {{ vm }})
+# -----------------------------------------------------------------------------
+# 3. Maintenance & Debug
+# -----------------------------------------------------------------------------
 
-# Ping all VMs to check connectivity
-vm-ping:
+# Deep network & system diagnostic
+debug:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "🔍 Checking VM connectivity..."
+    _remote() { ssh {{ deploy_user }}@{{ target }} "$@"; }
+    echo "🌐 [1/4] Network Topology" && _remote "ip -c addr show && ip -c route show"
     echo ""
-    for vm in {{ vm_list }}; do
-        ip=$(just _vm_ip "$vm")
-        ssh {{ deploy_user }}@{{ target }} "ping -c 2 -W 2 $ip >/dev/null 2>&1 && echo '✓ $vm ($ip)' || echo '✗ $vm ($ip)'" &
-    done
-    wait
+    echo "🔍 [2/4] VLAN Bridge" && _remote "sudo bridge vlan show dev vmbr0"
+    echo ""
+    echo "🌉 [3/4] Bridge FDB" && _remote "sudo bridge fdb show br vmbr0"
+    echo ""
+    echo "⚙️  [4/4] networkd Status" && _remote "networkctl status vlan10 vlan20"
 
-# =============================================================================
-# Initial Setup (One-time operations)
-# =============================================================================
+check:
+    nix flake check --impure --all-systems
 
-# Create VM storage directories on homelab
-vm-setup-storage:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    storage_paths=$(nix eval --impure --raw --expr '
-      let data = import ./data;
-      in builtins.concatStringsSep " " (
-        builtins.filter (x: x != "")
-          (builtins.attrValues (builtins.mapAttrs
-            (name: vm: vm.storage.source or "")
-            data.vms.definitions))
-      )
-    ')
-    ssh {{ deploy_user }}@{{ target }} "
-        for path in $storage_paths; do
-            sudo mkdir -p \"\$path\"
-        done
-        sudo chown -R root:kvm /var/lib/microvms
-        sudo chmod -R 0755 /var/lib/microvms
-        echo '✓ MicroVM storage directories created'
-        ls -la /var/lib/microvms/
-    "
-
-# Full initial deployment (setup + deploy + start VMs)
-init:
-    @echo "🚀 Starting full homelab deployment..."
-    @just setup-ssh-key
-    @just vm-setup-storage
-    @just deploy
-    @echo "⏳ Waiting for deployment to complete..."
-    @sleep 5
-    @just vm-status
-    @just vm-ping
-
-# =============================================================================
-# Network Debugging & Validation
-# =============================================================================
-
-# Show complete network topology and configuration
-net-show:
-    #!/usr/bin/env bash
-    echo "🌐 Network Topology Overview"
-    echo ""
-    echo "=== IP Addresses ==="
-    ssh {{ deploy_user }}@{{ target }} "ip -c addr show"
-    echo ""
-    echo "=== Routing Table ==="
-    ssh {{ deploy_user }}@{{ target }} "ip -c route show"
-    echo ""
-    echo "=== Bridge Configuration ==="
-    ssh {{ deploy_user }}@{{ target }} "ip -d link show vmbr0"
-    echo ""
-    echo "=== VLAN Interfaces ==="
-    ssh {{ deploy_user }}@{{ target }} "ip -d link show type vlan"
-
-# Check VLAN bridge filtering status
-net-check-vlan:
-    #!/usr/bin/env bash
-    echo "🔍 VLAN Bridge Filtering Status"
-    echo ""
-    echo "=== Bridge VLAN Table (vmbr0) ==="
-    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show dev vmbr0"
-    echo ""
-    echo "=== VLAN 10 (Management) Ports ==="
-    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show | grep -E '(vm-vault|vm-jenkins|vlan10)'"
-    echo ""
-    echo "=== VLAN 20 (Services) Ports ==="
-    ssh {{ deploy_user }}@{{ target }} "sudo bridge vlan show | grep -E '(vm-registry|vm-k8s-master|vm-k8s-worker|vlan20)'"
-
-# Verify bridge membership and state
-net-check-bridge:
-    #!/usr/bin/env bash
-    echo "🌉 Bridge Membership & State"
-    echo ""
-    echo "=== Bridge vmbr0 Members ==="
-    ssh {{ deploy_user }}@{{ target }} "bridge link show | grep vmbr0"
-    echo ""
-    echo "=== Bridge FDB (Forwarding Database) ==="
-    ssh {{ deploy_user }}@{{ target }} "sudo bridge fdb show br vmbr0"
-
-# Check systemd-networkd status and configuration
-net-check-networkd:
-    #!/usr/bin/env bash
-    echo "⚙️  systemd-networkd Status"
-    echo ""
-    echo "=== Service Status ==="
-    ssh {{ deploy_user }}@{{ target }} "systemctl status systemd-networkd --no-pager"
-    echo ""
-    echo "=== Network State ==="
-    ssh {{ deploy_user }}@{{ target }} "networkctl status"
-    echo ""
-    echo "=== VLAN Interface States ==="
-    ssh {{ deploy_user }}@{{ target }} "networkctl status vlan10 vlan20"
-
-# Check ARP tables (Layer 2 connectivity)
-net-check-arp:
-    #!/usr/bin/env bash
-    echo "📡 ARP Table Analysis"
-    echo ""
-    echo "=== Host ARP Table ==="
-    ssh {{ deploy_user }}@{{ target }} "ip neigh show"
-    echo ""
-    echo "=== Management VLAN ==="
-    ssh {{ deploy_user }}@{{ target }} "ip neigh show dev vlan10"
-    echo ""
-    echo "=== Services VLAN ==="
-    ssh {{ deploy_user }}@{{ target }} "ip neigh show dev vlan20"
-
-# Comprehensive network diagnostic
-net-diagnose:
-    #!/usr/bin/env bash
-    echo "🏥 Comprehensive Network Diagnostic"
-    echo ""
-    echo "=================================================="
-    echo "1. VLAN Bridge Configuration"
-    echo "=================================================="
-    just net-check-vlan
-    echo ""
-    echo "=================================================="
-    echo "2. Bridge Membership"
-    echo "=================================================="
-    just net-check-bridge
-    echo ""
-    echo "=================================================="
-    echo "3. systemd-networkd Status"
-    echo "=================================================="
-    just net-check-networkd
-    echo ""
-    echo "=================================================="
-    echo "4. ARP Tables (Layer 2)"
-    echo "=================================================="
-    just net-check-arp
-    echo ""
-    echo "=================================================="
-    echo "5. Connectivity Tests"
-    echo "=================================================="
-    just vm-ping
-    echo ""
-    echo "=================================================="
-    echo "6. Packet Forwarding & NAT"
-    echo "=================================================="
-    ssh {{ deploy_user }}@{{ target }} "sudo sysctl net.ipv4.ip_forward"
-    ssh {{ deploy_user }}@{{ target }} "sudo iptables -t nat -L -n -v | head -20"
-
-# Reset VM network interface (restart microvm)
-net-reset-vm vm:
-    #!/usr/bin/env bash
-    echo "🔄 Resetting network for VM: {{ vm }}"
-    just vm-restart {{ vm }}
-    echo "⏳ Waiting for VM to restart..."
-    sleep 5
-    echo "✓ VM restarted"
-
-# Reset all network interfaces (dangerous - use with caution)
-net-reset-all:
-    #!/usr/bin/env bash
-    echo "⚠️  WARNING: This will restart systemd-networkd on the homelab!"
-    echo "This may cause temporary network disruption."
-    echo ""
-    read -p "Continue? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "❌ Cancelled"
-        exit 1
-    fi
-    echo "🔄 Restarting systemd-networkd..."
-    ssh {{ deploy_user }}@{{ target }} "sudo systemctl restart systemd-networkd"
-    echo "⏳ Waiting for network to stabilize..."
-    sleep 5
-    echo "✓ Network service restarted"
+update:
+    nix flake update

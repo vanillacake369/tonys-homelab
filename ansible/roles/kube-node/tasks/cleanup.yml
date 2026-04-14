@@ -1,0 +1,28 @@
+# roles/kube-node/tasks/cleanup.yml
+# ------------------------------------------------------------
+
+- name: Clean Kubernetes State (Aggressive Cleanup)
+  block:
+    - name: Run kubeadm reset
+      shell: kubeadm reset -f
+      failed_when: false
+
+    - name: Kill ghost processes
+      shell: |
+        for proc in kube-apiserver etcd kube-controller-manager kube-scheduler; do
+          pkill -9 $proc || true
+        done
+      failed_when: false
+
+    - name: Purge manifest and pki residue
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/etcd
+        - /var/lib/kubelet
+        - /etc/cni/net.d
+      failed_when: false
+  when: reset_cluster | default(false) | bool
+  tags: [cleanup, never]

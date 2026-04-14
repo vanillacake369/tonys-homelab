@@ -6,18 +6,21 @@
   specialArgs,
   ...
 }: let
-  hostSshPubKey = data.hosts.definitions.${data.hosts.default}.sshPubKey or null;
+  injectedSshPubKey = specialArgs.sshPublicKey or "";
+  authorizedKeys =
+    data.hosts.definitions.${data.hosts.default}.authorizedKeys
+    ++ lib.optional (injectedSshPubKey != "") injectedSshPubKey;
   vmSecretsPath = specialArgs.vmSecretsPath or "/run/host-secrets";
 in {
   # Root user configuration
   users.mutableUsers = false;
   users.users.root = {
     shell = pkgs.zsh;
-    openssh.authorizedKeys.keys = lib.optional (hostSshPubKey != null) hostSshPubKey;
+    openssh.authorizedKeys.keys = authorizedKeys;
     hashedPasswordFile = "${vmSecretsPath}/users/rootPassword";
   };
 
-  programs.zsh.enable = true;
+  programs.zsh.enable = lib.mkForce true;
 
   # Standard packages
   environment.systemPackages = with pkgs; [

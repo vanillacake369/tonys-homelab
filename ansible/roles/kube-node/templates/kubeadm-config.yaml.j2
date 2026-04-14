@@ -1,0 +1,24 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+nodeRegistration:
+  name: "{{ node_name }}"
+  criSocket: "unix:///run/containerd/containerd.sock"
+  imagePullPolicy: IfNotPresent
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: stable
+controlPlaneEndpoint: "{{ api_vip }}:6443"
+networking:
+  podSubnet: "{{ pod_cidr }}"
+  serviceSubnet: "{{ service_cidr }}"
+apiServer:
+  certSANs:
+    - "{{ api_vip }}"
+    - "{{ inventory_hostname }}"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+clusterDomain: cluster.local
+staticPodPath: /etc/kubernetes/manifests

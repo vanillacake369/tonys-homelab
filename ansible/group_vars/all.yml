@@ -1,0 +1,18 @@
+# 2026.04 K8s Cluster Configuration (General Settings)
+# ------------------------------------------------------------
+# NOTE: pod_cidr and service_cidr are now managed in data/network.nix (SSOT)
+# and automatically injected via the dynamic inventory.
+
+k8s_version: "1.30.0"
+
+# Networking (Cilium eBPF Optimization)
+cilium_mtu: 1440
+cilium_kube_proxy_replacement: "true"
+
+# Helm / CNI Settings
+# NOTE: cilium_helm_version is injected from data/network.nix via dynamic inventory.
+cilium_namespace: "kube-system"
+
+# Ansible Controls
+# NOTE: ansible_ssh_common_args is injected per-host from dynamic inventory
+# with ProxyJump (via host deployment target).

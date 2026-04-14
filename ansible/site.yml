@@ -1,0 +1,21 @@
+---
+# Main Playbook (Entry Point)
+# ------------------------------------------------------------
+
+- name: OS & Runtime Preparation
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Kubernetes Bootstrapping
+  hosts: all
+  become: yes
+  roles:
+    - kube-node
+
+- name: CNI & Network Optimization
+  hosts: k8s_masters[0]
+  become: yes
+  roles:
+    - cni

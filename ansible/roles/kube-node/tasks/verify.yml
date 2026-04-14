@@ -1,0 +1,45 @@
+---
+# roles/kube-node/tasks/verify.yml
+# ------------------------------------------------------------
+
+- name: Ensure Kubelet is Enabled and Running
+  systemd:
+    name: kubelet
+    state: started
+    enabled: yes
+  tags: [bootstrap, verify]
+
+- name: Verify Cluster Health and Readiness
+  block:
+    - name: Wait for API healthz on VIP
+      uri:
+        url: "https://{{ api_vip }}:6443/healthz"
+        validate_certs: no
+      register: final_health
+      until: final_health.status == 200
+      retries: 20
+      delay: 5
+    - name: Wait for all nodes to be Ready
+      shell: |
+        kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes --no-headers | grep -v "NotReady" | grep "Ready" | wc -l
+      register: node_count
+      until: node_count.stdout | trim | int == groups['all'] | length
+      retries: 60
+      delay: 10
+      changed_when: false
+
+    - name: Get kube-system pod status for debugging
+      shell: "kubectl --kubeconfig /etc/kubernetes/admin.conf get pods -n kube-system"
+      register: pod_status
+      changed_when: false
+
+    - name: Final Health Summary
+      debug:
+        msg:
+            - "🎉 Cluster Bootstrap Successful!"
+            - "Nodes Ready: {{ node_count.stdout | trim }} / {{ groups['all'] | length }}"
+            - "API Health Status: {{ final_health.status }}"
+            - "--- Kube-System Pods ---"
+            - "{{ pod_status.stdout_lines }}"
+  when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
+  tags: [bootstrap, verify]

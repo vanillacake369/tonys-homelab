@@ -1,0 +1,27 @@
+# roles/common: Infrastructure Readiness
+# ------------------------------------------------------------
+
+- name: Ensure kernel modules are loaded (Idempotent)
+  shell: modprobe {{ item }}
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
+  tags: [ bootstrap ]
+
+- name: Verify sysctl parameters
+  shell: sysctl {{ item }} | grep "= 1"
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.ipv4.ip_forward
+  register: sysctl_check
+  changed_when: false
+  failed_when: sysctl_check.rc != 0
+  tags: [ bootstrap ]
+
+- name: Start and enable containerd
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+  tags: [ bootstrap ]

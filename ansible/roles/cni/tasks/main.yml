@@ -1,0 +1,67 @@
+---
+# roles/cni: Cilium (eBPF-based, No Kube-proxy)
+# ------------------------------------------------------------
+
+- name: Create local .kube directory for leader
+  file:
+    path: ~/.kube
+    state: directory
+    mode: '0755'
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]
+
+- name: Copy admin.conf to user kubeconfig
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: ~/.kube/config
+    remote_src: yes
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]
+
+- name: Add Cilium Helm repo
+  kubernetes.core.helm_repository:
+    name: cilium
+    repo_url: "https://helm.cilium.io/"
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]
+
+- name: Wait for API server to be responsive for Helm
+  uri:
+    url: "https://{{ api_vip }}:6443/version"
+    validate_certs: no
+  register: api_ready
+  until: api_ready is succeeded or api_ready.status == 200
+  retries: 30
+  delay: 5
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]
+
+- name: Install Cilium with eBPF Host Routing
+  kubernetes.core.helm:
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "{{ cilium_helm_version }}"
+    release_namespace: "{{ cilium_namespace }}"
+    create_namespace: true
+    kubeconfig: /etc/kubernetes/admin.conf # [명시] 확실한 경로 지정
+    values:
+      ipam:
+        mode: "cluster-pool"
+        operator:
+          clusterPoolIPv4PodCIDRList: ["{{ pod_cidr }}"]
+      kubeProxyReplacement: "true"
+      k8sServiceHost: "{{ api_vip }}"
+      k8sServicePort: 6443
+      nativeRoutingMTU: "{{ cilium_mtu }}"
+      routingMode: "native"
+      autoDirectNodeRoutes: "true"
+      bpf:
+        masquerade: true
+      endpointRoutes:
+        enabled: true
+  register: cilium_install
+  until: cilium_install is succeeded
+  retries: 5 # [추가] 일시적 통신 실패 대비 재시도
+  delay: 10
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]

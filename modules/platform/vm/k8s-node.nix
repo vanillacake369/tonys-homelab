@@ -1,18 +1,11 @@
-# Kubernetes 노드 공통 설정 (kubeadm 기반)
-{
-  pkgs,
-  lib,
-  data,
-  microvmTarget,
-  ...
-}: let
-  isVM = microvmTarget != null;
-in {
-  imports = [
-    ../../common/system.nix # Path: modules/platform/vm/../../common/system.nix -> modules/common/system.nix
-  ];
+# Josh Rosso Method: Pure Vanilla K8s on NixOS (Resilient Infrastructure)
+{ pkgs, lib, data, ... }: {
+  imports = [ ../../common/system.nix ];
 
-  # Enable common features for K8s nodes
+  # [0] NixOS 내장 K8s 모듈 완전 비활성화
+  services.kubernetes.roles = lib.mkForce [];
+  services.kubernetes.kubelet.enable = lib.mkForce false;
+
   my.common = {
     terminal.enable = true;
     monitoring.enable = true;
@@ -21,52 +14,29 @@ in {
     dev.enable = true;
   };
 
-  # ============================================================
-  # 커널 모듈 및 sysctl
-  # ============================================================
-  boot.kernelModules =
-    ["overlay"]
-    ++ lib.optionals isVM ["br_netfilter"];
-
-  boot.kernel.sysctl =
-    {
-      "net.ipv4.ip_forward" = lib.mkForce 1;
-    }
-    // lib.optionalAttrs isVM {
-      "net.bridge.bridge-nf-call-iptables" = 1;
-      "net.bridge.bridge-nf-call-ip6tables" = 1;
-    };
-
-  systemd.services.k8s-kernel-modules = lib.mkIf isVM {
-    description = "Load kernel modules for Kubernetes";
-    before = ["kubelet.service" "containerd.service"];
-    wantedBy = ["multi-user.target"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "k8s-load-modules" ''
-        ${pkgs.kmod}/bin/modprobe overlay
-        ${pkgs.kmod}/bin/modprobe br_netfilter
-        echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
-        echo 1 > /proc/sys/net/bridge/bridge-nf-call-ip6tables
-        echo 1 > /proc/sys/net/ipv4/ip_forward
-      '';
-    };
+  # [1] Kernel & Network
+  boot.kernelModules = ["overlay" "br_netfilter"];
+  boot.kernel.sysctl = {
+    "net.ipv4.ip_forward" = 1;
+    "net.bridge.bridge-nf-call-iptables" = 1;
+    "net.bridge.bridge-nf-call-ip6tables" = 1;
   };
 
-  # ============================================================
-  # 컨테이너 런타임 (containerd)
-  # ============================================================
+  # [2] Essential Packages (PyYAML, Helm, 필수 도구 포함)
+  environment.systemPackages = with pkgs; [
+    kubernetes cri-tools etcd conntrack-tools socat iptables
+    iproute2 jq ebtables ethtool kmod util-linux mount
+    kubernetes-helm
+    (python3.withPackages (ps: with ps; [ pyyaml ]))
+  ];
+
+  # [3] Container Runtime
   virtualisation.containerd = {
     enable = true;
     settings = {
       version = 2;
       plugins."io.containerd.grpc.v1.cri" = {
-        sandbox_image = "registry.k8s.io/pause:3.9";
-        cni = {
-          bin_dir = "/opt/cni/bin";
-          conf_dir = "/etc/cni/net.d";
-        };
+        sandbox_image = "registry.k8s.io/pause:3.10";
         containerd.runtimes.runc = {
           runtime_type = "io.containerd.runc.v2";
           options.SystemdCgroup = true;
@@ -75,88 +45,49 @@ in {
     };
   };
 
-  # ============================================================
-  # kubelet 서비스
-  # ============================================================
+  # [4] The Rosso Kubelet (Fully Open & Path-Aware)
   systemd.services.kubelet = {
     description = "Kubernetes Kubelet";
-    after =
-      ["containerd.service" "network-online.target"]
-      ++ lib.optionals isVM ["k8s-kernel-modules.service"];
-    wants =
-      ["containerd.service" "network-online.target"]
-      ++ lib.optionals isVM ["k8s-kernel-modules.service"];
-    wantedBy = ["multi-user.target"];
+    after = [ "containerd.service" "network-online.target" ];
+    wants = [ "containerd.service" "network-online.target" ];
+    wantedBy = lib.mkForce [ "multi-user.target" ]; 
+
+    # Kubelet이 필요한 모든 도구를 PATH에 주입
+    path = with pkgs; [
+      util-linux iproute2 coreutils bash mount socat iptables ethtool procps
+    ];
 
     serviceConfig = {
+      ExecStartPre = "-${pkgs.coreutils}/bin/mkdir -p /var/lib/kubelet";
       EnvironmentFile = "-/var/lib/kubelet/kubeadm-flags.env";
-      ExecStart = let
-        swapFlag = lib.optionalString (!isVM) "--fail-swap-on=false";
-      in
-        pkgs.writeShellScript "kubelet-start" ''
-          export PATH=${pkgs.util-linux}/bin:${pkgs.e2fsprogs}/bin:${pkgs.kmod}/bin:$PATH
-          exec ${pkgs.kubernetes}/bin/kubelet \
-            --config=/var/lib/kubelet/config.yaml \
-            --kubeconfig=/etc/kubernetes/kubelet.conf \
-            --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf \
-            ${swapFlag} \
-            $KUBELET_KUBEADM_ARGS
-        '';
+      # 쉘 래핑을 제거하고 kubeadm이 관리하도록 단순화 (대신 RestartSec 조정)
+      ExecStart = lib.mkForce "${pkgs.kubernetes}/bin/kubelet $KUBELET_KUBEADM_ARGS";
       Restart = "always";
       RestartSec = "10s";
-    };
-
-    unitConfig = {
-      ConditionPathExists = "/var/lib/kubelet/config.yaml";
+      StartLimitIntervalSec = 0;
+      ProtectSystem = "no";
+      ProtectControlGroups = "no";
+      Delegate = "yes";
+      KillMode = "process";
     };
   };
 
-  # ============================================================
-  # K8s 클러스터 노드 hosts (3 Master, 2 Worker)
-  # ============================================================
-  networking.hosts = let
-    vms = data.vms.definitions;
-  in {
-    "${vms.k8s-master-1.ip}" = [vms.k8s-master-1.hostname];
-    "${vms.k8s-master-2.ip}" = [vms.k8s-master-2.hostname];
-    "${vms.k8s-master-3.ip}" = [vms.k8s-master-3.hostname];
-    "${vms.k8s-worker-1.ip}" = [vms.k8s-worker-1.hostname];
-    "${vms.k8s-worker-2.ip}" = [vms.k8s-worker-2.hostname];
-  };
-
-  # ============================================================
-  # 필수 패키지 및 CNI 설정
-  # ============================================================
-  environment.systemPackages = with pkgs; [
-    kubernetes
-    kubectx
-    k9s
-    kubernetes-helm
-    cri-tools
-    cilium-cli
-    etcd
-    conntrack-tools
-    socat
-    iptables
-    iproute2
-    jq
-  ];
-
+  # [5] Path Mocking (Ubuntu environment simulation)
   systemd.tmpfiles.rules = [
-    "d /etc/kubernetes 0755 root root - -"
+    "d /etc/kubernetes/manifests 0755 root root - -"
     "d /var/lib/kubelet 0755 root root - -"
-    "d /opt/cni/bin 0755 root root - -"
-    "L+ /opt/cni/bin/loopback - - - - ${pkgs.cni-plugins}/bin/loopback"
-    "L+ /opt/cni/bin/portmap - - - - ${pkgs.cni-plugins}/bin/portmap"
+    "d /var/lib/etcd 0700 root root - -"
+    "L+ /opt/cni/bin - - - - ${pkgs.cni-plugins}/bin"
+    "L+ /var/run/containerd/containerd.sock - - - - /run/containerd/containerd.sock"
+    "L+ /usr/bin/socat - - - - ${pkgs.socat}/bin/socat"
+    "L+ /usr/bin/mount - - - - ${pkgs.util-linux}/bin/mount"
+    "L+ /usr/bin/umount - - - - ${pkgs.util-linux}/bin/umount"
+    "L+ /usr/bin/ip - - - - ${pkgs.iproute2}/bin/ip"
+    "L+ /bin/sh - - - - ${pkgs.bash}/bin/sh" # [추가] 일부 스크립트 호환성용
   ];
 
-  environment.etc."crictl.yaml".text = ''
-    runtime-endpoint: unix:///run/containerd/containerd.sock
-    image-endpoint: unix:///run/containerd/containerd.sock
-  '';
-
-  networking.firewall = {
-    allowedTCPPorts = [10250 4240 4244 4245];
-    allowedUDPPorts = [8472];
-  };
+  networking.firewall.enable = lib.mkForce false;
+  networking.hosts = lib.mapAttrs' (name: vm: 
+    lib.nameValuePair vm.ip [ vm.hostname name ]
+  ) data.vms.definitions;
 }

@@ -49,7 +49,7 @@ _run cmd on="" targets="all":
 # Sync entire infrastructure (Server + All VMs)
 up:
     @just _run apply
-    @echo "✅ Infrastructure deployed. Run 'just k8s-init' to bootstrap the cluster."
+    @echo "✅ Infrastructure deployed."
 
 # --- [ Kubernetes Cluster Management ] ---
 

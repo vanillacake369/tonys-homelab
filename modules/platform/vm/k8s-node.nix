@@ -3,7 +3,6 @@
 {
   pkgs,
   lib,
-  data,
   ...
 }: {
   # ------------------------------------------------------------
@@ -24,26 +23,35 @@
   # ------------------------------------------------------------
   # Kernel & Network Plumbing (Cilium/K8s optimized)
   # ------------------------------------------------------------
-  boot.kernelModules = [
-    "overlay"
-    "br_netfilter"
-    "ip_tables"
-    "nf_conntrack"
-    "xt_bpf"
-    "xt_mark"
-    "xt_tcpudp"
-    "xt_addrtype"
-  ];
-
-  boot.kernel.sysctl = {
-    "net.ipv4.ip_forward" = 1;
-    "net.ipv6.conf.all.forwarding" = 1;
-    "net.ipv4.conf.all.rp_filter" = 0;
-    "net.bridge.bridge-nf-call-iptables" = 1;
-    "net.bridge.bridge-nf-call-ip6tables" = 1;
-    "vm.overcommit_memory" = 1;
+  boot = {
+    kernelParams = [
+      "systemd.unified_cgroup_hierarchy=1"
+      "cgroup_no_v1=all"
+    ];
+    kernelModules = [
+      "overlay"
+      "br_netfilter"
+      "ip_tables"
+      "nf_conntrack"
+      "xt_bpf"
+      "xt_mark"
+      "xt_tcpudp"
+      "xt_addrtype"
+    ];
+    kernel.sysctl = {
+      "net.ipv4.ip_forward" = 1;
+      "net.ipv6.conf.all.forwarding" = 1;
+      "net.ipv4.conf.all.rp_filter" = 0;
+      "net.bridge.bridge-nf-call-iptables" = 1;
+      "net.bridge.bridge-nf-call-ip6tables" = 1;
+      "vm.overcommit_memory" = 1;
+    };
   };
-
+  fileSystems."/run/cilium/cgroupv2" = {
+    device = "none";
+    fsType = "cgroup2";
+    options = ["rw" "nosuid" "nodev" "noexec" "relatime"];
+  };
   fileSystems."/sys/fs/bpf" = {
     device = "bpffs";
     fsType = "bpf";
@@ -66,6 +74,7 @@
     kmod
     util-linux
     mount
+    ipset
     kubernetes-helm
     (python3.withPackages (ps: with ps; [pyyaml]))
   ];
@@ -91,6 +100,8 @@
     description = "Kubernetes Kubelet";
     after = ["containerd.service" "network-online.target"];
     wants = ["containerd.service" "network-online.target"];
+    wantedBy = ["multi-user.target"];
+    unitConfig.StartLimitIntervalSec = 0;
 
     path = with pkgs; [
       util-linux
@@ -102,21 +113,40 @@
       iptables
       ethtool
       procps
+      gnugrep
     ];
 
     serviceConfig = {
-      ExecStartPre = "-${pkgs.coreutils}/bin/mkdir -p /var/lib/kubelet";
+      ExecStartPre = [
+        "-${pkgs.coreutils}/bin/mkdir -p /var/lib/kubelet"
+        "-${pkgs.coreutils}/bin/mkdir -p /opt/cni/bin"
+      ];
       EnvironmentFile = "-/var/lib/kubelet/kubeadm-flags.env";
       ExecStart = lib.mkForce "${pkgs.kubernetes}/bin/kubelet --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml $KUBELET_KUBEADM_ARGS";
+      ReadWritePaths = [
+        "/var/lib/kubelet"
+        "/var/log"
+        "/etc/kubernetes"
+        "/var/run"
+        "/opt/cni/bin"
+      ];
+      RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK"];
       Restart = "always";
       RestartSec = "10s";
-      StartLimitIntervalSec = 0;
       ProtectSystem = "no";
       ProtectControlGroups = "no";
       Delegate = "yes";
       KillMode = "process";
     };
   };
+
+  # Avoid noisy endpoint auto-discovery warnings and pin CRI endpoint.
+  environment.etc."crictl.yaml".text = ''
+    runtime-endpoint: unix:///run/containerd/containerd.sock
+    image-endpoint: unix:///run/containerd/containerd.sock
+    timeout: 10
+    debug: false
+  '';
 
   # ------------------------------------------------------------
   # OS Mocking (The 'Ubuntu Simulation')
@@ -126,7 +156,8 @@
     "d /var/lib/kubelet 0755 root root - -"
     "d /var/lib/etcd 0700 root root - -"
     "d /etc/cni/net.d 0755 root root - -"
-    "L+ /opt/cni/bin - - - - ${pkgs.cni-plugins}/bin"
+    "d /opt/cni/bin 0755 root root - -"
+    "L+ /bin/sh - - - - ${pkgs.bash}/bin/sh"
     "L+ /usr/bin/socat - - - - ${pkgs.socat}/bin/socat"
     "L+ /usr/bin/ip - - - - ${pkgs.iproute2}/bin/ip"
     "L+ /usr/bin/mount - - - - ${pkgs.util-linux}/bin/mount"

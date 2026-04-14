@@ -1,9 +1,6 @@
 # NixOS user tools configuration
 # git, yazi, fzf 등 사용자 유틸리티
-{
-  pkgs,
-  ...
-}: {
+{pkgs, ...}: {
   programs.git = {
     enable = true;
     config = {

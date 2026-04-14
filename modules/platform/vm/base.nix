@@ -1,29 +1,36 @@
-# VM Base Profile
-# "Data to Option" Adapter
-#
-# 이 모듈은 data.vms.definitions에 정의된 정보를 바탕으로
-# MicroVM 하드웨어(CPU, RAM, MAC)와 네트워킹(IP, Gateway)을 자동으로 설정합니다.
+# modules/platform/vm/base.nix
+# The "Super-Base" Profile for all MicroVMs
 {
   config,
   lib,
   pkgs,
   data,
   microvmTarget,
+  specialArgs,
   ...
 }: let
-  # microvmTarget은 mk-microvms.nix에서 specialArgs로 전달됨
   vmName = microvmTarget;
   vmInfo = data.vms.definitions.${vmName};
   vlanInfo = data.network.vlans.${vmInfo.vlan};
+
+  # SSH & Secrets Handling
+  injectedSshPubKey = specialArgs.sshPublicKey or "";
+  authorizedKeys =
+    data.hosts.definitions.${data.hosts.default}.authorizedKeys
+    ++ lib.optional (injectedSshPubKey != "") injectedSshPubKey;
+  vmSecretsPath = specialArgs.vmSecretsPath or "/run/host-secrets";
 in {
+  imports = [
+    ../../common/system.nix # Option definitions (my.common.*)
+  ];
+
   # ------------------------------------------------------------
-  # MicroVM 하드웨어 설정 (데이터 기반 자동화)
+  # 1. Hardware & Networking (Data-Driven)
   # ------------------------------------------------------------
   microvm = {
     vcpu = lib.mkDefault vmInfo.vcpu;
     mem = lib.mkDefault vmInfo.mem;
     vsock.cid = lib.mkDefault vmInfo.vsockCid;
-
     interfaces = [
       {
         type = "tap";
@@ -33,13 +40,11 @@ in {
     ];
   };
 
-  # ------------------------------------------------------------
-  # 네트워킹 설정 (systemd-networkd)
-  # ------------------------------------------------------------
   networking = {
     hostName = lib.mkForce vmInfo.hostname;
     useDHCP = false;
     nameservers = data.network.dns;
+    firewall.enable = lib.mkDefault true;
   };
 
   systemd.network.networks."10-lan" = {
@@ -47,16 +52,20 @@ in {
     address = ["${vmInfo.ip}/${toString vlanInfo.prefixLength}"];
     gateway = [vlanInfo.gateway];
     dns = data.network.dns;
-    networkConfig = {
-      IPv4Forwarding = true;
-      IPv6Forwarding = false;
-    };
+    networkConfig.IPv4Forwarding = true;
     linkConfig.RequiredForOnline = "no";
   };
 
   # ------------------------------------------------------------
-  # 기본 서비스 및 보안
+  # 2. Identity & Access
   # ------------------------------------------------------------
+  users.mutableUsers = false;
+  users.users.root = {
+    shell = pkgs.zsh;
+    openssh.authorizedKeys.keys = authorizedKeys;
+    hashedPasswordFile = "${vmSecretsPath}/users/rootPassword";
+  };
+
   services.openssh = {
     enable = true;
     settings = {
@@ -65,8 +74,18 @@ in {
     };
   };
 
-  networking.firewall.enable = true;
-  
-  # State Version (SSOT)
+  # Standard packages for every VM
+  environment.systemPackages = with pkgs; [
+    vim
+    git
+    htop
+    curl
+    wget
+  ];
+
+  # ------------------------------------------------------------
+  # 3. System Defaults
+  # ------------------------------------------------------------
+  programs.zsh.enable = lib.mkForce true;
   system.stateVersion = data.hosts.common.stateVersion;
 }

@@ -22,30 +22,36 @@
   };
 
   # VM TAP netdevs 자동 생성
-  mkTapNetdevs = lib.mapAttrs' (name: vmInfo:
-    lib.nameValuePair "30-tap-${name}" {
-      netdevConfig = {
-        Name = vmInfo.tapId;
-        Kind = "tap";
-      };
-    }
-  ) vms;
+  mkTapNetdevs =
+    lib.mapAttrs' (
+      name: vmInfo:
+        lib.nameValuePair "30-tap-${name}" {
+          netdevConfig = {
+            Name = vmInfo.tapId;
+            Kind = "tap";
+          };
+        }
+    )
+    vms;
 
   # VM TAP networks 자동 생성
-  mkTapNetworks = lib.mapAttrs' (name: vmInfo: let
-    vlanId = vlanIdMap.${vmInfo.vlan};
-  in
-    lib.nameValuePair "50-vm-${name}" {
-      matchConfig.Name = vmInfo.tapId;
-      networkConfig.Bridge = externalIf;
-      bridgeVLANs = [
-        {
-          PVID = vlanId;
-          EgressUntagged = vlanId;
+  mkTapNetworks =
+    lib.mapAttrs' (
+      name: vmInfo: let
+        vlanId = vlanIdMap.${vmInfo.vlan};
+      in
+        lib.nameValuePair "50-vm-${name}" {
+          matchConfig.Name = vmInfo.tapId;
+          networkConfig.Bridge = externalIf;
+          bridgeVLANs = [
+            {
+              PVID = vlanId;
+              EgressUntagged = vlanId;
+            }
+          ];
         }
-      ];
-    }
-  ) vms;
+    )
+    vms;
 in {
   # Wake-on-LAN 활성화 (ethtool로 설정)
   systemd.services.wol = {
@@ -71,6 +77,14 @@ in {
       allowedTCPPorts = [22];
     };
 
+    # SSOT: Register all VMs in /etc/hosts automatically
+    hosts =
+      lib.mapAttrs' (
+        name: vmInfo:
+          lib.nameValuePair vmInfo.ip [name vmInfo.hostname]
+      )
+      vms;
+
     # NAT으로 내부 VLAN 라우팅
     nat = {
       enable = true;
@@ -80,9 +94,12 @@ in {
     };
   };
 
-  # 라우팅용 IPv4 포워딩 활성화
+  # 라우팅용 IPv4 포워딩 활성화 및 브리지 필터링 비활성화
   boot.kernel.sysctl = {
     "net.ipv4.ip_forward" = 1;
+    "net.bridge.bridge-nf-call-iptables" = 0;
+    "net.bridge.bridge-nf-call-ip6tables" = 0;
+    "net.bridge.bridge-nf-call-arptables" = 0;
   };
 
   # systemd-networkd 구성

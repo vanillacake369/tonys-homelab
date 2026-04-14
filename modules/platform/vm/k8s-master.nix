@@ -1,10 +1,14 @@
 # Kubernetes Master Profile (Infrastructure only)
-{ pkgs, data, microvmTarget, ... }: 
-let
+{
+  pkgs,
+  data,
+  microvmTarget,
+  ...
+}: let
   vmInfo = data.vms.definitions.${microvmTarget};
 in {
   # Master 전용 패키지 (etcd 바이너리 등)
-  environment.systemPackages = with pkgs; [ etcd ];
+  environment.systemPackages = with pkgs; [etcd];
 
   # KUBECONFIG 환경변수
   environment.variables.KUBECONFIG = "/etc/kubernetes/admin.conf";

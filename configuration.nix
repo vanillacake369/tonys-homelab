@@ -31,9 +31,7 @@
   };
 
   # SSH public key for root (from data)
-  users.users.root.openssh.authorizedKeys.keys = [
-    data.hosts.definitions.homelab.sshPubKey
-  ];
+  users.users.root.openssh.authorizedKeys.keys = data.hosts.definitions.homelab.authorizedKeys;
 
   system.stateVersion = data.hosts.common.stateVersion;
 }

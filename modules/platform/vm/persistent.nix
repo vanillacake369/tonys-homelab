@@ -47,7 +47,7 @@ in {
       (mkShare "/var/lib/microvms/${vmName}/kubernetes" "/etc/kubernetes" "k8s-config")
     ]
     # K8s Master etcd
-    ++ lib.optionals (vmName == "k8s-master") [
+    ++ lib.optionals (builtins.elem vmName data.vms.k8s.masters) [
       (mkShare "/var/lib/microvms/${vmName}/etcd" "/var/lib/etcd" "k8s-etcd")
     ];
 
@@ -66,7 +66,7 @@ in {
     // lib.optionalAttrs (lib.hasPrefix "k8s-" vmName) {
       "/etc/kubernetes" = mkMount "k8s-config";
     }
-    // lib.optionalAttrs (vmName == "k8s-master") {
+    // lib.optionalAttrs (builtins.elem vmName data.vms.k8s.masters) {
       "/var/lib/etcd" = mkMount "k8s-etcd";
     };
 

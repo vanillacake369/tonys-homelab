@@ -2,6 +2,7 @@
 # Automatically creates required storage directories for all VMs
 {
   lib,
+  pkgs,
   data,
   ...
 }: let
@@ -33,7 +34,7 @@
 
   # K8s 노드 영구 저장 디렉토리 (kubeadm 기반)
   k8sConfigDirs = map (name: "/var/lib/microvms/${name}/kubernetes") k8sNodeNames;
-  k8sEtcdDir = "/var/lib/microvms/k8s-master/etcd";
+  k8sEtcdDirs = map (name: "/var/lib/microvms/${name}/etcd") data.vms.k8s.masters;
 in {
   # Create storage directories using systemd-tmpfiles
   systemd.tmpfiles.rules =
@@ -49,7 +50,13 @@ in {
       # Ensure base directories exist
       "d /var/lib/microvms 0755 microvm kvm - -"
       "d /var/lib/microvms/iso 0755 microvm kvm - -"
-      # etcd storage for k8s-master (must be 0700 for security)
-      "d ${k8sEtcdDir} 0700 microvm kvm - -"
-    ];
+    ]
+    # etcd storage for all control-plane nodes (must be 0700 for security)
+    ++ map (path: "d ${path} 0700 microvm kvm - -") k8sEtcdDirs;
+
+  # Ensure new tmpfiles rules are applied immediately on nixos-rebuild switch
+  # so microvm units can start without requiring a reboot/manual tmpfiles run.
+  system.activationScripts.microvmStorageDirs.text = ''
+    ${pkgs.systemd}/bin/systemd-tmpfiles --create /etc/tmpfiles.d/00-nixos.conf
+  '';
 }

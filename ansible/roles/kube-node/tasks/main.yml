@@ -1,0 +1,48 @@
+# roles/kube-node: Josh Rosso K8s Lifecycle (Optimized Orchestrator)
+# ------------------------------------------------------------
+
+- name: "[Check] Local Node Join Status"
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: local_joined
+
+- name: "[Infra] Ensure API VIP is bound on leader"
+  shell: |
+    # Find the interface that has the cluster IP (10.0.20.x)
+    IFACE=$(ip -4 addr show | grep '10.0.20.' | awk '{print $NF}' | head -n1)
+    if [ -z "$IFACE" ]; then exit 1; fi
+    
+    # Bind VIP if not already present
+    ip addr show dev $IFACE | grep -q "{{ api_vip }}/" || \
+    ip addr add {{ api_vip }}/{{ api_vip_prefix_length }} dev $IFACE
+  when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
+  tags: [bootstrap, always]
+
+- name: "[Check] Cluster API Health"
+  uri:
+    url: "https://{{ api_vip }}:6443/healthz"
+    validate_certs: no
+  register: global_api_health
+  failed_when: false
+  when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
+  tags: [bootstrap, always]
+
+- name: "Set Bootstrap Decision Fact"
+  set_fact:
+    needs_bootstrap: >-
+      {{ 
+        (reset_cluster | default(false) | bool) or 
+        (not local_joined.stat.exists) or 
+        (node_role == 'master' and inventory_hostname == groups['k8s_masters'][0] and global_api_health.status | default(0) != 200)
+      }}
+
+# 1) Cleanup: 강제 리셋 요청이 있을 때만 실행
+- include_tasks: cleanup.yml
+  when: reset_cluster | default(false) | bool
+
+# 2) Bootstrap: 리셋되었거나, 조인이 안 되었거나, API가 죽었을 때만 실행
+- include_tasks: bootstrap.yml
+  when: needs_bootstrap | bool
+
+# 3) Verify: 상태와 관계없이 항상 실행하여 최종 건강 상태 보고
+- include_tasks: verify.yml

@@ -53,6 +53,7 @@ in {
         nmap
         mtr
         ethtool
+        netplan
       ]
       ++ lib.optionals cfg.dev.enable [
         git

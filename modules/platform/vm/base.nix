@@ -61,7 +61,7 @@ in {
   # ------------------------------------------------------------
   users.mutableUsers = false;
   users.users.root = {
-    shell = pkgs.zsh;
+    shell = pkgs.fish;
     openssh.authorizedKeys.keys = authorizedKeys;
     hashedPasswordFile = "${vmSecretsPath}/users/rootPassword";
   };
@@ -86,6 +86,6 @@ in {
   # ------------------------------------------------------------
   # 3. System Defaults
   # ------------------------------------------------------------
-  programs.zsh.enable = lib.mkForce true;
+  programs.fish.enable = lib.mkForce true;
   system.stateVersion = data.hosts.common.stateVersion;
 }

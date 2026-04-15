@@ -12,7 +12,7 @@
   rootPasswordPath = config.sops.secrets.rootPassword.path;
   userPasswordPath = config.sops.secrets."${userName}Password".path;
 in {
-  programs.zsh.enable = true;
+  programs.fish.enable = true;
 
   users = {
     mutableUsers = false;
@@ -22,7 +22,7 @@ in {
         openssh.authorizedKeys.keys = sshKeys;
       };
       "${userName}" = {
-        shell = pkgs.zsh;
+        shell = pkgs.fish;
         isNormalUser = true;
         description = "Limjihoon";
         extraGroups = ["networkmanager" "wheel" "libvirtd"];

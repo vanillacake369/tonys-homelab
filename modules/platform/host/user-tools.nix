@@ -12,6 +12,5 @@
   environment.systemPackages = with pkgs; [
     yazi
     fzf
-    zsh-powerlevel10k
   ];
 }

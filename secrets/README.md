@@ -69,23 +69,20 @@ sops secrets/secrets.yaml
 
 ### 4. NixOS 설정
 
-`modules/nixos/sops.nix`:
+`atoms/system/sops.nix` (기본 설정) + 각 atom에서 secret 선언:
 
 ```nix
-{ config, ... }: {
+# atoms/system/sops.nix — sops-nix 기본 경로 설정
+{...}: {
   sops = {
-    defaultSopsFile = ../secrets/secrets.yaml;
-    age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"];
-
-    secrets = {
-      "users/rootPassword" = {
-        neededForUsers = true;
-      };
-      "users/limjihoonPassword" = {
-        neededForUsers = true;
-      };
-    };
+    defaultSopsFile = ../../secrets/secrets.yaml;
+    age.keyFile = "/var/lib/sops-nix/key.txt";
   };
+}
+
+# atoms/network/tailscale.nix — secret 선언 예시
+{...}: {
+  sops.secrets."tailscale/clientSecret" = {};
 }
 ```
 

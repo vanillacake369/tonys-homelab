@@ -3,13 +3,13 @@
 # - systemd-networkd 활성화 (NetworkManager 비활성)
 # - 기본 방화벽 활성화 + SSH 포트 허용
 # - 역할별 추가 포트는 각 role 파일에서 선언 (listOf 자동 병합)
-{...}: {
+{lib, ...}: {
   networking.networkmanager.enable = false;
   networking.useDHCP = false;
   networking.useNetworkd = true;
 
   networking.firewall = {
-    enable = true;
+    enable = lib.mkDefault true;
     allowedTCPPorts = [22];
   };
 }

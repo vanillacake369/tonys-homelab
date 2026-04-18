@@ -28,6 +28,12 @@
       url = "github:zhaofengli/colmena";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Topology 다이어그램 생성툴
+    nix-topology = {
+      url = "github:oddlama/nix-topology";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # 의존성 주입
@@ -49,13 +55,23 @@
 
     # VM 구성 헬퍼함수인 mk-vms
     mkVMs = import ./lib/mk-vms.nix {inherit lib inputs;};
+    allNodes = mkHost.hostNodes // mkVMs.vmNodes;
 
     # Host 구성 헬퍼함수인 mk-colmena
-    hive = import ./lib/mk-colmena.nix {
-      inherit lib inputs mkHost mkVMs;
-    };
+    hive = import ./lib/mk-colmena.nix {inherit lib inputs mkHost mkVMs;};
+
+    nixosConfigurations = lib.mapAttrs (name: nodeConfig:
+      lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          nodeConfig
+          inputs.nix-topology.nixosModules.default
+        ];
+        specialArgs = {inherit inputs;};
+      })
+    allNodes;
   in {
-    inherit packages;
+    inherit packages nixosConfigurations;
 
     # 헬퍼함수를 통해
     # Host & VM 에 대한
@@ -70,5 +86,16 @@
     # - 테스트/확인
     #   - nix run --impure .#colmena -- apply --dry-run --on @{{ target }}
     colmenaHive = hive;
+
+    # nix-topology: nix build .#topology.x86_64-linux.config.output
+    topology.x86_64-linux = import inputs.nix-topology {
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        overlays = [inputs.nix-topology.overlays.default];
+      };
+      modules = [
+        {inherit nixosConfigurations;}
+      ];
+    };
   };
 }

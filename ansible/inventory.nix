@@ -1,23 +1,46 @@
 # ============================================================
 # Ansible Dynamic Inventory Bridge (Nix -> JSON)
 # ============================================================
-# 이 파일은 data/ 디렉토리의 모든 순수 데이터를 Ansible의 인벤토리 규격으로 변환합니다.
+# - VM 목록/IP: network/topology.nix vms 섹션 (CIDR 단일 관리)
+# - 네트워크 상수: network/topology.nix
+# - role: VM 이름 패턴에서 동적 도출 (k8s-master-* / k8s-worker-*)
+# - vlan: IP 프리픽스를 topology.nix의 VLAN gateway와 매칭하여 도출
 # ------------------------------------------------------------
-{
-  data,
-  deploy_target ? "",
-}: let
-  vms = data.vms;
-  network = data.network;
-  host = data.hosts.definitions.${data.hosts.default};
-  inherit (vms) definitions k8s;
+{deploy_target ? ""}: let
+  network = import ../network/topology.nix;
 
-  # SSOT: Use dynamically detected deploy_target if available, fallback to data layer
+  # VM 이름에서 Ansible role 도출 (k8s-master-* → "master")
+  roleOf = name:
+    if builtins.match "k8s-master-.*" name != null then "master"
+    else if builtins.match "k8s-worker-.*" name != null then "worker"
+    else "unknown";
+
+  # IP 프리픽스(/24)를 topology.nix VLAN gateway와 대조해 VLAN 이름 도출
+  # VLAN 구성이 바뀌어도 topology.nix 수정만으로 자동 반영됨
+  vlanOf = ip: let
+    prefix3 = addr: let
+      m = builtins.match "([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+" addr;
+    in
+      if m != null then builtins.head m else "";
+    ipPfx = prefix3 ip;
+    matches = builtins.filter
+      (v: prefix3 network.vlans.${v}.gateway == ipPfx)
+      (builtins.attrNames network.vlans);
+  in
+    if matches != [] then builtins.head matches else "unknown";
+
+  # VM 이름 목록: topology.nix vms 키 → 사전순 정렬 (master-1 < master-2 < ... < worker-3)
+  allVmNames = builtins.attrNames network.vms;
+  masterHosts = builtins.filter (n: roleOf n == "master") allVmNames;
+  workerHosts = builtins.filter (n: roleOf n == "worker") allVmNames;
+  allNodes = masterHosts ++ workerHosts;
+
+  # Jump host: 물리 호스트 (homelab-1.nix: node.{ip, user})
   jumpHost =
     if deploy_target != ""
     then deploy_target
-    else host.deployment.targetHost;
-  jumpUser = host.deployment.targetUser;
+    else network.wan.host;
+  jumpUser = "limjihoon";
 
   # Identity file logic
   idFile = builtins.getEnv "SSH_KEY_FILE";
@@ -28,47 +51,28 @@
 
   proxySshArgs = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null ${idArg} -o ProxyJump=${jumpUser}@${jumpHost}";
 
-  # [1] 데이터 변환기: Nix VM 정의를 Ansible 호스트 변수로 매핑
+  # [1] 데이터 변환기: topology.nix VM 네트워크 할당을 Ansible 호스트 변수로 매핑
   # ------------------------------------------------------------
   toAnsibleHost = name: let
-    vm = definitions.${name};
+    vm = network.vms.${name};
   in {
-    # Ansible 필수 변수
     ansible_host = vm.ip;
-    ansible_user = vm.deployment.user or "root";
-
-    # NixOS 최적화: Python 인터프리터 경로 명시
+    ansible_user = "root";
     ansible_python_interpreter = "/run/current-system/sw/bin/python3";
     ansible_ssh_common_args = proxySshArgs;
-
-    # 플레이북에서 활용할 커스텀 메타데이터
     node_name = name;
-    node_hostname = vm.hostname;
-    node_vlan = vm.vlan;
-    node_role =
-      if builtins.elem name k8s.masters
-      then "master"
-      else "worker";
+    node_hostname = name;
+    node_vlan = vlanOf vm.ip;
+    node_role = roleOf name;
   };
 
-  # [2] 그룹 생성기: 호스트 리스트를 받아 Ansible 그룹 구조 반환
+  # [2] 그룹 생성기
   # ------------------------------------------------------------
   mkGroup = hosts: {
     inherit hosts;
-    vars = {
-      # 그룹별 공통 변수
-    };
+    vars = {};
   };
-
-  # [3] 중간 데이터 가공
-  # ------------------------------------------------------------
-  masterHosts = k8s.masters;
-  workerHosts = k8s.workerOrder;
-  allNodes = masterHosts ++ workerHosts;
 in {
-  # Ansible이 요구하는 최종 JSON 구조
-  # ------------------------------------------------------------
-
   # 모든 호스트의 상세 변수 정의
   _meta.hostvars = builtins.listToAttrs (map (name: {
       inherit name;
@@ -76,11 +80,10 @@ in {
     })
     allNodes);
 
-  # 글로벌 변수 (data/network.nix에서 직접 가져옴 - SSOT 준수)
+  # 글로벌 변수 (network/topology.nix 에서 직접 참조)
   all = {
     children = ["k8s_masters" "k8s_workers"];
     vars = {
-      # K8s Networking (Nix SSOT -> Ansible Vars)
       pod_cidr = network.kubernetes.pod_cidr;
       service_cidr = network.kubernetes.service_cidr;
       api_vip = network.kubernetes.api_vip;

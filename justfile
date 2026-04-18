@@ -1,180 +1,311 @@
-# Tony's Homelab - High Efficiency Justfile (Self-contained)
-# Single source of truth for all operations
+set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Data Extraction (SSOT)
-_nix_eval expr:
-    @nix eval --impure --raw --expr 'let d = import ./data; in {{ expr }}'
+topology := "./network/topology.nix"
+resolver := "./lib/resolve-node.nix"
 
-vms := `nix eval --impure --raw --expr 'let d = import ./data; in builtins.concatStringsSep " " d.vms.order'`
-target := ```
-  lan_ip=$(nix eval --impure --raw --expr 'let d = import ./data; in d.network.wan.host')
-  ts_ip=$(nix eval --impure --raw --expr 'let d = import ./data; in d.network.tailscale.host')
-  user=$(nix eval --impure --raw --expr 'let d = import ./data; in d.hosts.definitions.homelab.deployment.targetUser')
+# Resolve node → {ip, user, type, parentIp, parentUser}
+[private]
+resolve node:
+    @nix eval --impure --json --expr '(import {{ resolver }} { node = "{{ node }}"; })'
 
-  # 1) LAN: direct SSH (fastest)
-  if [ -n "$lan_ip" ] && ssh -o ConnectTimeout=2 -o BatchMode=yes "${user}@${lan_ip}" true 2>/dev/null; then
-    echo "$lan_ip"
-    exit 0
-  fi
+# Comma-separated VM names
+[private]
+vm-names:
+    @nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")'
 
-  # 2) Tailscale IP fallback (works from anywhere)
-  if [ -n "$ts_ip" ] && ssh -o ConnectTimeout=3 -o BatchMode=yes "${user}@${ts_ip}" true 2>/dev/null; then
-    echo "$ts_ip"
-    exit 0
-  fi
+# Physical host names (space-separated)
+[private]
+host-names:
+    @nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r '.[]'
 
-  echo "Error: Cannot reach homelab via LAN ($lan_ip) or Tailscale ($ts_ip)" >&2
-  exit 1
-```
-deploy_user := `nix eval --impure --raw --expr 'let d = import ./data; in d.hosts.definitions.homelab.deployment.targetUser'`
-ssh_pub_key := `if [ -f secrets/ssh-public-key.txt ]; then cat secrets/ssh-public-key.txt; else echo "Error" >&2; exit 1; fi`
+# All node names (space-separated)
+[private]
+all-names:
+    @nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r '.[]'
 
-# Internal Helpers
-_ssh cmd:
-    @ssh {{ deploy_user }}@{{ target }} "{{ cmd }}"
-
-# Deployment Helper
-_run cmd on="" targets="all":
+# SSH to a resolved node (physical: direct, VM: ProxyJump)
+[private]
+node-ssh node +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
-    ON="{{ on }}"
-    if [ -z "$ON" ]; then ON="homelab"; fi
-    DEPLOY_TARGET="{{ target }}" MICROVM_TARGETS="{{ targets }}" SSH_PUB_KEY="{{ ssh_pub_key }}" \
-        nix run --impure .#colmena -- {{ cmd }} --on "$ON" --impure --show-trace
+    info=$(just resolve {{ node }})
+    ip=$(echo "$info" | jq -r '.ip')
+    user=$(echo "$info" | jq -r '.user')
+    type=$(echo "$info" | jq -r '.type')
+    if [ "$type" = "physical" ]; then
+        ssh "$user@$ip" {{ cmd }}
+    else
+        pIp=$(echo "$info" | jq -r '.parentIp')
+        pUser=$(echo "$info" | jq -r '.parentUser')
+        ssh -J "$pUser@$pIp" "$user@$ip" {{ cmd }}
+    fi
 
-# -----------------------------------------------------------------------------
-# 1. Deployment & Sync
-# -----------------------------------------------------------------------------
+[private]
+colmena +args:
+    nix run --impure .#colmena -- {{ args }}
 
-# Sync entire infrastructure (Server + All VMs)
-up:
-    @just _run apply
-    @echo "✅ Infrastructure deployed."
-
-# --- [ Kubernetes Cluster Management ] ---
-
-# Full Kubernetes deployment (Clean & Re-install)
-k8s-deploy:
-    @echo "🚀 Starting full Kubernetes deployment (Clean + Bootstrap)..."
-    @just k8s-clean
-    @just k8s-bootstrap
-
-# Install Kubernetes cluster on a clean environment
-k8s-bootstrap:
+# Dry-run → confirm → apply
+[private]
+safe-deploy +nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    just wait-for-vms
-    key_file="$(ssh -G {{ target }} | awk '/^identityfile / {print $2; exit}')"
-    if [[ "$key_file" == "~/"* ]]; then
-      key_file="$HOME/${key_file#\~/}"
-    fi
-    # Fallback to id_ed25519 if detected key doesn't exist
-    if [ ! -f "$key_file" ] && [ -f "$HOME/.ssh/id_ed25519" ]; then
-      key_file="$HOME/.ssh/id_ed25519"
-    fi
-    [ -f "$key_file" ] || { echo "❌ SSH private key not found: $key_file"; exit 1; }
-    # Run ONLY setup tasks
-    DEPLOY_TARGET="{{ target }}" SSH_KEY_FILE="$key_file" ansible-playbook --private-key "$key_file" -i ansible/inventory.py ansible/site.yml --tags bootstrap
+    echo "=== Dry-run: {{ nodes }} ==="
+    just colmena apply --on "{{ nodes }}" --verbose build
+    echo ""
+    read -rp "Apply to [{{ nodes }}]? [y/N] " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    echo "=== Applying: {{ nodes }} ==="
+    just colmena apply --on "{{ nodes }}" --verbose
 
-# Wipe all Kubernetes state and data from all nodes
-k8s-clean:
+[private]
+wait-vms:
     #!/usr/bin/env bash
     set -euo pipefail
-    just wait-for-vms
-    key_file="$(ssh -G {{ target }} | awk '/^identityfile / {print $2; exit}')"
-    if [[ "$key_file" == "~/"* ]]; then
-      key_file="$HOME/${key_file#\~/}"
-    fi
-    # Fallback to id_ed25519 if detected key doesn't exist
-    if [ ! -f "$key_file" ] && [ -f "$HOME/.ssh/id_ed25519" ]; then
-      key_file="$HOME/.ssh/id_ed25519"
-    fi
-    [ -f "$key_file" ] || { echo "❌ SSH private key not found: $key_file"; exit 1; }
-    # Run ONLY cleanup tasks
-    DEPLOY_TARGET="{{ target }}" SSH_KEY_FILE="$key_file" ansible-playbook --private-key "$key_file" -i ansible/inventory.py ansible/site.yml --tags cleanup -e reset_cluster=true
-
-# Wait for all VM SSH ports to be open
-wait-for-vms:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "🔍 Checking VM availability..."
-    IPS=$(./ansible/inventory.py | jq -r '._meta.hostvars[].ansible_host')
-    JUMP_HOST="{{ target }}"
-    JUMP_USER="{{ deploy_user }}"
-    MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-300}"
-    for ip in $IPS; do
-        echo -n "  Waiting for $ip:22..."
-        start_ts=$(date +%s)
-        until ssh "$JUMP_USER@$JUMP_HOST" "nc -zvw1 '$ip' 22" &>/dev/null; do
-            now_ts=$(date +%s)
-            if [ $((now_ts - start_ts)) -ge "$MAX_WAIT_SECONDS" ]; then
-                echo ""
-                echo "❌ Timeout waiting for $ip:22 after ${MAX_WAIT_SECONDS}s"
-                echo "   Check: sudo systemctl status microvm@<node> microvm-virtiofsd@<node> on $JUMP_HOST"
-                exit 1
-            fi
-            echo -n "."
-            sleep 2
+    echo "Waiting for VM fleet..."
+    for host in $(just host-names); do
+        info=$(just resolve "$host")
+        hIp=$(echo "$info" | jq -r '.ip')
+        hUser=$(echo "$info" | jq -r '.user')
+        vms=$(nix eval --impure --json --expr '(import {{ topology }}).vms' | jq -r '.[] | .ip')
+        for ip in $vms; do
+            until ssh "$hUser@$hIp" "nc -zvw1 $ip 22" &>/dev/null; do printf "."; sleep 1; done
+            echo " $ip OK"
         done
-        echo " OK"
     done
-    echo "🚀 All VMs are reachable via SSH."
 
-# Sync specific target (e.g., just sync k8s-master-1)
-sync name:
-    @just _run apply --on {{ name }} --targets {{ name }}
+[private]
+ansible tags extra="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(just host-names | head -1)
+    info=$(just resolve "$host")
+    target=$(echo "$info" | jq -r '.ip')
+    key=$(ssh -G "$target" | awk '/^identityfile / {print $2; exit}')
+    key="${key/#\~/$HOME}"
+    [ -f "$key" ] || key="$HOME/.ssh/id_ed25519"
+    DEPLOY_TARGET="$target" ansible-playbook -i ansible/inventory.py ansible/site.yml \
+        --private-key "$key" --tags {{ tags }} {{ extra }} -v
 
 # -----------------------------------------------------------------------------
-# 2. Management & Control
+# Build & Deploy
 # -----------------------------------------------------------------------------
 
-# List all running units (VMs + Network)
-ls:
-    @echo "--- MicroVM Units ---"
-    @just _ssh "systemctl list-units 'microvm@*' --no-pager"
-    @echo ""
-    @echo "--- Network Status ---"
-    @just _ssh "networkctl list"
+# Deploy all (host first → VMs)
+deploy-all: deploy-host deploy-vms
 
-# Control VM lifecycle (e.g., just vm stop k8s-worker-1 / just vm start all)
+# Deploy physical host(s)
+deploy-host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    hosts=$(just host-names | tr '\n' ',')
+    just safe-deploy "${hosts%,}"
+
+# Deploy all VMs
+deploy-vms:
+    just safe-deploy "$(just vm-names)"
+
+# Deploy specific node(s): just deploy k8s-master-1 k8s-worker-1
+deploy +nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    targets=$(echo "{{ nodes }}" | tr ' ' ',')
+    just safe-deploy "$targets"
+
+# Build only (no apply)
+build *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{ nodes }}" ]; then
+        just colmena build --verbose
+    else
+        targets=$(echo "{{ nodes }}" | tr ' ' ',')
+        just colmena build --on "$targets" --verbose
+    fi
+
+# -----------------------------------------------------------------------------
+# VM Access & Lifecycle
+# -----------------------------------------------------------------------------
+
+# SSH into any node (physical or VM)
+ssh node:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    info=$(just resolve {{ node }})
+    ip=$(echo "$info" | jq -r '.ip')
+    user=$(echo "$info" | jq -r '.user')
+    type=$(echo "$info" | jq -r '.type')
+    if [ "$type" = "physical" ]; then
+        ssh "$user@$ip"
+    else
+        pIp=$(echo "$info" | jq -r '.parentIp')
+        pUser=$(echo "$info" | jq -r '.parentUser')
+        ssh -J "$pUser@$pIp" "$user@$ip"
+    fi
+
+# VM lifecycle: just vm start|stop|restart [name|all]
 vm action name="all":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ name }}" = "all" ]; then
-        echo "🔄 Action '{{ action }}' on ALL MicroVMs..."
-        for vm in {{ vms }}; do
-            echo "  {{ action }} microvm@$vm..."
-            ssh {{ deploy_user }}@{{ target }} "sudo systemctl {{ action }} microvm@$vm" &
-        done
-        wait
+        vms=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
     else
-        echo "🚀 {{ action }} microvm@{{ name }}..."
-        ssh {{ deploy_user }}@{{ target }} "sudo systemctl {{ action }} microvm@{{ name }}"
+        vms="{{ name }}"
     fi
-
-# Access VM console (Ctrl-A, X to exit)
-console name:
-    @ssh {{ deploy_user }}@{{ target }} -t "sudo microvm console {{ name }}"
+    for host in $(just host-names); do
+        for vm in $vms; do
+            echo "{{ action }}ing $vm on $host..."
+            just node-ssh "$host" "sudo systemctl {{ action }} microvm@$vm" &
+        done
+    done
+    wait
+    echo "Done."
 
 # -----------------------------------------------------------------------------
-# 3. Maintenance & Debug
+# Examination
 # -----------------------------------------------------------------------------
 
-# Deep network & system diagnostic
-debug:
+# System health (all hosts + VMs)
+status:
     #!/usr/bin/env bash
     set -euo pipefail
-    _remote() { ssh {{ deploy_user }}@{{ target }} "$@"; }
-    echo "🌐 [1/4] Network Topology" && _remote "ip -c addr show && ip -c route show"
-    echo ""
-    echo "🔍 [2/4] VLAN Bridge" && _remote "sudo bridge vlan show dev vmbr0"
-    echo ""
-    echo "🌉 [3/4] Bridge FDB" && _remote "sudo bridge fdb show br vmbr0"
-    echo ""
-    echo "⚙️  [4/4] networkd Status" && _remote "networkctl status vlan10 vlan20"
+    for host in $(just host-names); do
+        info=$(just resolve "$host")
+        ip=$(echo "$info" | jq -r '.ip')
+        echo "=== Host: $host ($ip) ==="
+        just node-ssh "$host" "uptime && echo '' && free -h && echo '' && df -h / /nix/store 2>/dev/null" || echo "Unreachable"
+        echo ""
+    done
+    just vm-status
 
+# VM units + SSH connectivity
+vm-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for host in $(just host-names); do
+        echo "=== MicroVM Units ($host) ==="
+        just node-ssh "$host" "systemctl list-units 'microvm@*' --no-pager" || true
+    done
+    echo ""
+    echo "=== VM Connectivity ==="
+    vms=$(nix eval --impure --json --expr '(import {{ topology }}).vms' | jq -r 'to_entries[] | "\(.key) \(.value.ip)"')
+    host=$(just host-names | head -1)
+    while IFS=' ' read -r name ip; do
+        if just node-ssh "$host" "nc -zvw2 $ip 22" &>/dev/null; then
+            echo "  $name ($ip): OK"
+        else
+            echo "  $name ($ip): UNREACHABLE"
+        fi
+    done <<< "$vms"
+
+# Network: bridge, VLAN, routing (all hosts)
+net:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for host in $(just host-names); do
+        echo "=== Network: $host ==="
+        echo "--- Bridge & VLAN ---"
+        just node-ssh "$host" "bridge vlan show 2>/dev/null || echo 'N/A'"
+        echo "--- Interfaces ---"
+        just node-ssh "$host" "networkctl list"
+        echo "--- Routes ---"
+        just node-ssh "$host" "ip route"
+        echo ""
+    done
+
+# Generate topology diagram (requires nix-topology flake input)
+topology-diagram:
+    nix build --impure .#topology.x86_64-linux.config.output -o result-topology
+    @echo "SVGs generated in ./result-topology/"
+    @ls result-topology/
+
+# -----------------------------------------------------------------------------
+# Kubernetes
+# -----------------------------------------------------------------------------
+
+# Full lifecycle: clean → bootstrap → verify
+k8s-deploy: k8s-clean k8s-bootstrap k8s-verify
+
+# Bootstrap cluster
+k8s-bootstrap: wait-vms
+    just ansible bootstrap
+
+# Reset cluster
+k8s-clean: wait-vms
+    just ansible cleanup "-e reset_cluster=true"
+
+# Comprehensive cluster health check
+k8s-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    api_vip=$(nix eval --impure --raw --expr '(import {{ topology }}).kubernetes.api_vip')
+    host=$(just host-names | head -1)
+
+    # Helper: run kubectl on first master via host
+    kc() { just node-ssh "$host" "ssh -o StrictHostKeyChecking=no root@$master_ip $*" 2>/dev/null; }
+
+    echo "=== API Health (VIP: $api_vip) ==="
+    kc "curl -sk https://$api_vip:6443/healthz" && echo "" || echo "UNHEALTHY"
+
+    echo ""
+    echo "=== Nodes ==="
+    kc "kubectl get nodes -o wide" || echo "unavailable"
+
+    echo ""
+    echo "=== kube-system Pods ==="
+    kc "kubectl get pods -n kube-system -o wide" || echo "unavailable"
+
+    echo ""
+    echo "=== etcd Health ==="
+    kc "ETCDCTL_API=3 etcdctl \
+        --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+        --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
+        --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
+        endpoint health --cluster" || echo "unavailable"
+
+    echo ""
+    echo "=== Component Status ==="
+    for component in kube-apiserver kube-controller-manager kube-scheduler etcd; do
+        echo "--- $component (last 10 lines) ---"
+        kc "kubectl logs -n kube-system -l component=$component --tail=10 2>/dev/null" || echo "no logs"
+        echo ""
+    done
+
+    echo "=== Cilium Status ==="
+    kc "kubectl -n kube-system get pods -l app.kubernetes.io/name=cilium -o wide" || echo "unavailable"
+    echo ""
+    echo "--- Cilium Agent Logs (last 10 lines) ---"
+    kc "kubectl -n kube-system logs -l app.kubernetes.io/name=cilium-agent --tail=10 2>/dev/null" || echo "no logs"
+
+    echo ""
+    echo "=== Cluster Join Summary ==="
+    expected=$(nix eval --impure --json --expr 'builtins.length (builtins.attrNames (import {{ topology }}).vms)')
+    actual=$(kc "kubectl get nodes --no-headers 2>/dev/null | wc -l" || echo "0")
+    echo "Expected: $expected nodes, Actual: $actual nodes"
+
+# -----------------------------------------------------------------------------
+# Maintenance
+# -----------------------------------------------------------------------------
+
+# Validate flake
 check:
     nix flake check --impure --all-systems
 
+# Update flake inputs
 update:
     nix flake update
+
+# Garbage collection (all nodes or specific)
+gc *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{ nodes }}" ]; then
+        targets=$(just all-names)
+    else
+        targets="{{ nodes }}"
+    fi
+    for node in $targets; do
+        echo "=== GC: $node ==="
+        just node-ssh "$node" "sudo nix-collect-garbage -d && sudo nix-store --optimize && sudo journalctl --vacuum-time=1d" || echo "Failed"
+    done

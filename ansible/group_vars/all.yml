@@ -1,7 +1,6 @@
 # 2026.04 K8s Cluster Configuration (General Settings)
 # ------------------------------------------------------------
-# NOTE: pod_cidr and service_cidr are now managed in data/network.nix (SSOT)
-# and automatically injected via the dynamic inventory.
+# NOTE: pod_cidr and service_cidr are injected via dynamic inventory (network/topology.nix)
 
 k8s_version: "1.30.0"
 

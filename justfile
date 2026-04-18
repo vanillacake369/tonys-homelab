@@ -44,16 +44,17 @@ node-ssh node +cmd:
 colmena +args:
     nix run --impure .#colmena -- {{ args }}
 
-# Dry-run → confirm → apply
+# Eval check (로컬, 수 초) → apply
 [private]
 safe-deploy +nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "=== Dry-run: {{ nodes }} ==="
-    just colmena apply --on "{{ nodes }}" --verbose build
+    echo "=== Eval check: {{ nodes }} ==="
+    for node in $(echo "{{ nodes }}" | tr ',' ' '); do
+        nix eval --impure --expr "(builtins.getFlake \"git+file://$PWD\").colmenaHive.nodes.$node.config.system.build.toplevel" >/dev/null
+        echo "  $node: OK"
+    done
     echo ""
-    read -rp "Apply to [{{ nodes }}]? [y/N] " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     echo "=== Applying: {{ nodes }} ==="
     just colmena apply --on "{{ nodes }}" --verbose
 
@@ -172,7 +173,7 @@ status:
         info=$(just resolve "$host")
         ip=$(echo "$info" | jq -r '.ip')
         echo "=== Host: $host ($ip) ==="
-        just node-ssh "$host" "uptime && echo '' && free -h && echo '' && df -h / /nix/store 2>/dev/null" || echo "Unreachable"
+        just node-ssh "$host" "bash -c 'uptime && echo && df -h / /nix/store 2>/dev/null'" || echo "Unreachable"
         echo ""
     done
     just vm-status
@@ -183,7 +184,7 @@ vm-status:
     set -euo pipefail
     for host in $(just host-names); do
         echo "=== MicroVM Units ($host) ==="
-        just node-ssh "$host" "systemctl list-units 'microvm@*' --no-pager" || true
+        just node-ssh "$host" "systemctl list-units --no-pager | grep microvm" || true
     done
     echo ""
     echo "=== VM Connectivity ==="
@@ -212,11 +213,25 @@ net:
         echo ""
     done
 
-# Generate topology diagram (requires nix-topology flake input)
+# Generate topology diagram (build on remote host, copy results back)
 topology-diagram:
-    nix build --impure .#topology.x86_64-linux.config.output -o result-topology
-    @echo "SVGs generated in ./result-topology/"
-    @ls result-topology/
+    #!/usr/bin/env bash
+    host=$(just host-names | head -1)
+    info=$(just resolve "$host")
+    ip=$(echo "$info" | jq -r '.ip')
+    user=$(echo "$info" | jq -r '.user')
+    remote_dir="/tmp/homelab-topology"
+    echo "=== Syncing repo to $host ==="
+    ssh "$user@$ip" "rm -rf $remote_dir"
+    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' . "$user@$ip:$remote_dir/"
+    echo "=== Building topology on $host ==="
+    ssh "$user@$ip" "cd $remote_dir && nix build --impure '.#topology.x86_64-linux.config.output' -o /tmp/topology-result"
+    rm -rf result-topology
+    mkdir -p result-topology
+    scp -r "$user@$ip:/tmp/topology-result/*" result-topology/
+    ssh "$user@$ip" "rm -rf $remote_dir /tmp/topology-result"
+    echo "=== SVGs generated in ./result-topology/ ==="
+    ls result-topology/
 
 # -----------------------------------------------------------------------------
 # Kubernetes

@@ -58,6 +58,9 @@ in {
   imports = [
     ../interface.nix
     ../roles/common.nix
+    ../../atoms/user/limjihoon.nix
+    ../../atoms/system/git.nix
+    ../../atoms/network/ssh-client.nix
     ./disko-config.nix
   ];
 
@@ -81,7 +84,7 @@ in {
   # ===========================================================================
   sops = {
     defaultSopsFile = ../../secrets/secrets.yaml;
-    age.keyFile = "/var/lib/sops-nix/key.txt";
+    age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"];
   };
 
   # ===========================================================================
@@ -145,7 +148,7 @@ in {
     };
     script = ''
       SECRET=$(cat "${clientSecret}")
-      tailscale up --authkey="$SECRET" --ssh --netfilter-mode=nodivert --advertise-exit-node
+      tailscale up --reset --authkey="$SECRET" --ssh --netfilter-mode=nodivert --advertise-exit-node
     '';
   };
 

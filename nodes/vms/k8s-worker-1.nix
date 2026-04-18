@@ -18,6 +18,7 @@ in {
 
   microvm = {
     hypervisor = "qemu";
+    writableStoreOverlay = "/nix/.rw-store";
     vcpu = 8;
     mem = 16384;
     interfaces = [{

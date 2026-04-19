@@ -1,7 +1,7 @@
 # Tony's Homelab
 
-NixOS + MicroVM + Colmena 기반 선언적 홈랩 인프라.
-물리 서버 위에 MicroVM으로 Kubernetes 클러스터를 운영합니다.
+NixOS + libvirt + Colmena 기반 선언적 홈랩 인프라.
+물리 서버 위에 libvirt QEMU/KVM으로 Kubernetes 클러스터를 운영합니다.
 
 ```bash
 just deploy-all    # 물리호스트 → VM 순서로 전체 배포
@@ -26,6 +26,7 @@ flowchart TB
   end
 
   subgraph Host["homelab-1 (Physical NixOS Host)"]
+    Libvirt["libvirtd"]
     Bridge["vmbr0 Bridge"]
     TS["Tailscale Exit Node"]
     SOPS["sops-nix Secrets"]
@@ -45,11 +46,12 @@ flowchart TB
   end
 
   Just --> Colmena
-  Colmena -->|"deploy"| Host
-  Colmena -->|"deploy"| VLAN20
+  Colmena -->|"deploy (SSH)"| Host
+  Colmena -->|"deploy (ProxyJump)"| VLAN20
+  Libvirt -->|"QEMU/KVM"| VLAN20
   Host --- Bridge --- VLAN20
   Host --- GW
-  TS -.->|"VPN"| Mac
+  TS -.->|"VPN fallback"| Mac
 ```
 
 **핵심 구성요소:**
@@ -57,7 +59,7 @@ flowchart TB
 | 구성 | 설명 | 참조 |
 |------|------|------|
 | [Colmena](https://github.com/zhaofengli/colmena) | NixOS 원격 배포 | `lib/mk-colmena.nix` |
-| [microvm.nix](https://github.com/astro/microvm.nix) | 경량 VM (QEMU) | `nodes/vms/*.nix` |
+| [libvirt](https://libvirt.org/) | VM 관리 (QEMU/KVM) | `lib/mk-libvirt.nix` |
 | [sops-nix](https://github.com/Mic92/sops-nix) | 암호화된 시크릿 | `atoms/system/sops.nix` |
 | IaC Contract | 노드별 옵션 인터페이스 | `nodes/interface.nix` |
 
@@ -69,7 +71,7 @@ flowchart TB
 ├── justfile                   # 운영 명령어 (deploy, ssh, k8s, ...)
 ├── network/
 │   └── topology.nix           # CIDR/VLAN/호스트/VM 네트워크 상수
-├── lib/                       # Colmena hive 빌드 헬퍼
+├── lib/                       # Colmena hive + libvirt 빌드 헬퍼
 ├── nodes/                     # IaC Contract + 노드 정의 (물리/VM/역할)
 ├── atoms/                     # 재사용 가능한 NixOS 모듈 조각
 ├── ansible/                   # K8s 부트스트랩 (kubeadm + Cilium)
@@ -80,13 +82,42 @@ flowchart TB
 
 ## Quick Start
 
-**사전 요구:**  Nix (flakes), sops, age, just, jq
+### 사전 요구
+
+- Nix (flakes), sops, age, just, jq, tailscale
+
+### SSH 설정 (필수)
+
+Colmena와 justfile이 물리 호스트에 접속할 때 **LAN → Tailscale 자동 fallback**을 사용합니다.
+`~/.ssh/config`에 다음을 추가하세요:
+
+```ssh-config
+# 물리 호스트: LAN(192.168.45.82) 우선, 실패 시 Tailscale IP 동적 파싱
+Host homelab-1
+  User limjihoon
+  IdentityFile ~/.ssh/homelab.pem
+  ProxyCommand bash -c 'timeout 2 nc 192.168.45.82 22 2>/dev/null || nc $(tailscale status --json 2>/dev/null | jq -r ".Peer[] | select(.DNSName | startswith(\"homelab-1.\")) | .TailscaleIPs[0]") 22'
+
+# VM: 물리 호스트 경유 ProxyJump
+Host 10.0.20.* k8s-master-* k8s-worker-*
+  User root
+  ProxyJump homelab-1
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+```
+
+이 설정으로:
+- **LAN에 있을 때**: 직접 SSH (2초 내 연결)
+- **외부 네트워크**: Tailscale VPN 경유 (자동 감지, IP 변경 대응)
+- **VM 접속**: 물리 호스트를 자동 경유 (ProxyJump)
+
+### 배포
 
 ```bash
 # 검증
 just check
 
-# 전체 배포 (호스트 → VM 순서, dry-run 확인 후 적용)
+# 전체 배포 (호스트 → VM 순서)
 just deploy-all
 
 # 특정 노드만 배포
@@ -100,7 +131,7 @@ just build
 ## Operations
 
 ```bash
-# SSH
+# SSH (LAN/Tailscale 자동 감지)
 just ssh homelab-1        # 물리 호스트
 just ssh k8s-master-1     # VM (ProxyJump 자동)
 

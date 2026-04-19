@@ -1,10 +1,10 @@
 # Colmena Hive 선언 헬퍼 — Host & VM 노드를 병합하고 deployment 설정 주입
 #
 # targetHost 전략:
-#   물리 호스트: hostname 사용 (SSH config에서 LAN/Tailscale ProxyCommand로 동적 해석)
+#   물리 호스트: hostname 사용 (SSH config에서 LAN 또는 Tailscale IP로 명시적 지정 권장)
 #   VM: LAN IP 사용 (SSH config의 ProxyJump로 물리 호스트 경유)
 #
-# 사전 요구: ~/.ssh/config에 물리 호스트의 LAN→Tailscale fallback ProxyCommand 설정
+# 사전 요구: ~/.ssh/config에 물리 호스트에 대한 적절한 IP(LAN/Tailscale) 설정 필요
 # 상세 설정은 README.md "Quick Start > SSH 설정" 참조
 {
   lib,

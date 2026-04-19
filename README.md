@@ -88,28 +88,32 @@ flowchart TB
 
 ### SSH 설정 (필수)
 
-Colmena와 justfile이 물리 호스트에 접속할 때 **LAN → Tailscale 자동 fallback**을 사용합니다.
-`~/.ssh/config`에 다음을 추가하세요:
+Colmena와 justfile이 안정적으로 동작하려면 `~/.ssh/config` 설정이 필요합니다.
+배포 시 Hang 현상을 방지하기 위해 **복잡한 ProxyCommand 대신 고정 IP(LAN 또는 Tailscale)를 사용**하는 것을 권장합니다.
 
 ```ssh-config
-# 물리 호스트: LAN(192.168.45.82) 우선, 실패 시 Tailscale IP 동적 파싱
+# 1. 물리 호스트 (homelab-1)
+# 로컬(집): 192.168.45.82 사용
+# 원격(외부): Tailscale 활성화 후 Tailscale IP(100.x.y.z) 또는 MagicDNS 사용
 Host homelab-1
-  User limjihoon
-  IdentityFile ~/.ssh/homelab.pem
-  ProxyCommand bash -c 'timeout 2 nc 192.168.45.82 22 2>/dev/null || nc $(tailscale status --json 2>/dev/null | jq -r ".Peer[] | select(.DNSName | startswith(\"homelab-1.\")) | .TailscaleIPs[0]") 22'
+    HostName 100.x.y.z       # 또는 192.168.45.82
+    User limjihoon
+    IdentityFile ~/.ssh/homelab.pem
+    # 대량 배포(Colmena/Ansible) 시 연결 재사용으로 속도 향상
+    ControlMaster auto
+    ControlPath ~/.ssh/master-%r@%h:%p
+    ControlPersist 10m
 
-# VM: 물리 호스트 경유 ProxyJump
+# 2. VM 노드 (ProxyJump 설정)
+# 모든 VM은 물리 호스트(homelab-1)를 경유하여 접속합니다.
 Host 10.0.20.* k8s-master-* k8s-worker-*
-  User root
-  ProxyJump homelab-1
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
+    User root
+    ProxyJump homelab-1
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
 ```
 
-이 설정으로:
-- **LAN에 있을 때**: 직접 SSH (2초 내 연결)
-- **외부 네트워크**: Tailscale VPN 경유 (자동 감지, IP 변경 대응)
-- **VM 접속**: 물리 호스트를 자동 경유 (ProxyJump)
+> **Tip:** Tailscale MagicDNS(`homelab-1.your-tailnet.ts.net`)를 사용하면 장소에 관계없이 자동으로 최적의 경로를 찾아 연결되므로 가장 편리합니다.
 
 ### 배포
 

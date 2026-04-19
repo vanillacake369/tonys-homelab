@@ -50,7 +50,7 @@
         after = ["libvirtd.service"];
         requires = ["libvirtd.service"];
         wantedBy = ["multi-user.target"];
-        path = [pkgs.libvirt pkgs.qemu_kvm pkgs.coreutils pkgs.iproute2 pkgs.bridge-utils];
+        path = [pkgs.libvirt pkgs.qemu_kvm pkgs.coreutils pkgs.iproute2 pkgs.bridge-utils pkgs.gawk pkgs.gnugrep];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;

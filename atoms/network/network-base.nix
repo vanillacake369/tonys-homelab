@@ -8,6 +8,8 @@
   networking.useDHCP = false;
   networking.useNetworkd = true;
 
+  services.resolved.enable = true;
+
   networking.firewall = {
     enable = lib.mkDefault true;
     allowedTCPPorts = [22];

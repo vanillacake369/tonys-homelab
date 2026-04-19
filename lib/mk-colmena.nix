@@ -9,8 +9,7 @@
   inputs,
   mkHost,
   mkVMs,
-}:
-let
+}: let
   # 모든 노드(물리/VM 공통) deployment 설정
   # node.hostType 에 따라 allowLocalDeployment 자동 결정
   deploymentModule = {config, ...}: {

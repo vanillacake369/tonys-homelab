@@ -1,9 +1,11 @@
-# host 에 대한 로컬/원격배포를 위해
-# Host & VM 헬퍼함수를 주입받아
-# Colmena Hive 선언을 도와주는 헬퍼함수
-# - deployment (targetHost, targetUser, allowLocalDeployment) 는 이 파일에서 담당
-# - targetUser: IaC Contract의 node.user (물리 호스트는 "limjihoon", VM은 "root")
-# - allowLocalDeployment: node.hostType == "physical" 인 경우만 활성화
+# Colmena Hive 선언 헬퍼 — Host & VM 노드를 병합하고 deployment 설정 주입
+#
+# targetHost 전략:
+#   물리 호스트: hostname 사용 (SSH config에서 LAN/Tailscale ProxyCommand로 동적 해석)
+#   VM: LAN IP 사용 (SSH config의 ProxyJump로 물리 호스트 경유)
+#
+# 사전 요구: ~/.ssh/config에 물리 호스트의 LAN→Tailscale fallback ProxyCommand 설정
+# 상세 설정은 README.md "Quick Start > SSH 설정" 참조
 {
   lib,
   inputs,
@@ -14,7 +16,12 @@
   # node.hostType 에 따라 allowLocalDeployment 자동 결정
   deploymentModule = {config, ...}: {
     deployment = {
-      targetHost = config.node.ip;
+      # 물리 호스트: hostname (SSH config에서 LAN/Tailscale 동적 해석)
+      # VM: LAN IP (ProxyJump 경유)
+      targetHost =
+        if config.node.hostType == "physical"
+        then config.networking.hostName
+        else config.node.ip;
       targetUser = config.node.user;
       buildOnTarget = true;
       allowLocalDeployment = config.node.hostType == "physical";

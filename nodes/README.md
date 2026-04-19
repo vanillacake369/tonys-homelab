@@ -62,7 +62,7 @@ flowchart TB
 | `roles/k8s-master.nix` | K8s master (common + k8s atoms + master 방화벽 포트) |
 | `roles/k8s-worker.nix` | K8s worker (common + k8s atoms + worker 방화벽 포트) |
 | `physical/*.nix` | 물리 호스트 구성 (bridge, VLAN, TAP, NAT) |
-| `vms/*.nix` | MicroVM 구성 (microvm 설정, systemd-networkd) |
+| `vms/*.nix` | VM 노드 구성 (libvirt/QEMU 기반, systemd-networkd) |
 
 ## HOW
 

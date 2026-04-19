@@ -32,7 +32,6 @@ ts-ip node:
 [private]
 resolve-ssh node:
     #!/usr/bin/env bash
-    set -x
     info=$(just resolve {{ node }})
     ip=$(echo "$info" | jq -r '.ip')
     user=$(echo "$info" | jq -r '.user')
@@ -47,7 +46,6 @@ resolve-ssh node:
 [private]
 node-ssh node +cmd:
     #!/usr/bin/env bash
-    set -x
     info=$(just resolve {{ node }})
     user=$(echo "$info" | jq -r '.user')
     type=$(echo "$info" | jq -r '.type')
@@ -91,7 +89,6 @@ safe-deploy +nodes:
 wait-vms:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     echo "Waiting for VM fleet..."
     for host in $(just host-names); do
         info=$(just resolve "$host")
@@ -108,7 +105,6 @@ wait-vms:
 ansible tags extra="":
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     host=$(just host-names | head -1)
     info=$(just resolve "$host")
     target=$(echo "$info" | jq -r '.ip')
@@ -129,7 +125,6 @@ deploy-all: deploy-host deploy-vms
 deploy-host:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     hosts=$(just host-names | tr '\n' ',')
     just safe-deploy "${hosts%,}"
 
@@ -141,7 +136,6 @@ deploy-vms:
 deploy +nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     targets=$(echo "{{ nodes }}" | tr ' ' ',')
     just safe-deploy "$targets"
 
@@ -149,7 +143,6 @@ deploy +nodes:
 build *nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     if [ -z "{{ nodes }}" ]; then
         just colmena build --verbose
     else
@@ -164,7 +157,6 @@ build *nodes:
 # SSH into any node (LAN → Tailscale 동적 fallback)
 ssh node:
     #!/usr/bin/env bash
-    set -x
     info=$(just resolve {{ node }})
     user=$(echo "$info" | jq -r '.user')
     type=$(echo "$info" | jq -r '.type')
@@ -187,16 +179,22 @@ ssh node:
 vm action name="all":
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     if [ "{{ name }}" = "all" ]; then
         vms=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
     else
         vms="{{ name }}"
     fi
+    # action map: stop -> shutdown, restart -> reboot
+    case "{{ action }}" in
+        stop) virsh_cmd="shutdown" ;;
+        restart) virsh_cmd="reboot" ;;
+        *) virsh_cmd="{{ action }}" ;;
+    esac
+
     for host in $(just host-names); do
         for vm in $vms; do
-            echo "{{ action }}ing $vm on $host..."
-            just node-ssh "$host" "sudo systemctl {{ action }} microvm@$vm" &
+            echo "$virsh_cmd-ing $vm on $host..."
+            just node-ssh "$host" "sudo virsh $virsh_cmd $vm" &
         done
     done
     wait
@@ -210,7 +208,6 @@ vm action name="all":
 status:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     for host in $(just host-names); do
         info=$(just resolve "$host")
         ip=$(echo "$info" | jq -r '.ip')
@@ -224,10 +221,10 @@ status:
 vm-status:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
+    # 
     for host in $(just host-names); do
-        echo "=== MicroVM Units ($host) ==="
-        just node-ssh "$host" "systemctl list-units --no-pager | grep microvm" || true
+        echo "=== Libvirt Domains ($host) ==="
+        just node-ssh "$host" "sudo virsh list --all" || true
     done
     echo ""
     echo "=== VM Connectivity ==="
@@ -245,7 +242,7 @@ vm-status:
 net:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
+    # 
     for host in $(just host-names); do
         echo "=== Network: $host ==="
         echo "--- Bridge & VLAN ---"
@@ -260,7 +257,7 @@ net:
 # Generate topology diagram (build on remote host, copy results back)
 topology-diagram:
     #!/usr/bin/env bash
-    set -x
+
     host=$(just host-names | head -1)
     info=$(just resolve "$host")
     ip=$(echo "$info" | jq -r '.ip')
@@ -297,7 +294,7 @@ k8s-clean: wait-vms
 k8s-verify:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
+
     master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
         | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
     api_vip=$(nix eval --impure --raw --expr '(import {{ topology }}).kubernetes.api_vip')

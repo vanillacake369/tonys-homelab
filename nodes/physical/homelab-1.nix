@@ -15,7 +15,7 @@
   svcVlanId = vlans.services.id;
 
   # VM TAP 장치 정의: topology.nix vms 에서 자동 도출 (VM 추가/제거 시 수정 불필요)
-  # NOTE: Phase 3에서 microvm.vms 선언 시 TAP netdev 생성은 microvm host 모듈이 담당
+  # NOTE: Phase 4에서 libvirt VM Domain으로 TAP 생성 이관 예정
   #       현재는 systemd-networkd가 직접 생성
   vmTapDefs = builtins.attrValues (
     builtins.mapAttrs (name: vm: {

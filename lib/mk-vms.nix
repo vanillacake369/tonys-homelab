@@ -18,7 +18,6 @@
     networking.hostName = lib.mkDefault name;
 
     imports = [
-      inputs.microvm.nixosModules.microvm
       inputs.sops-nix.nixosModules.sops
       ../nodes/interface.nix
       ../nodes/vms/${name}.nix

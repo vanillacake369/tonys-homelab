@@ -17,12 +17,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # MicroVM 지원 모듈
-    microvm = {
-      url = "github:microvm-nix/microvm.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # 배포 도구 (colmena)
     colmena = {
       url = "github:zhaofengli/colmena";

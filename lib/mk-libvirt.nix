@@ -47,22 +47,42 @@
   mkDomainServices = builtins.listToAttrs (map (entry: let
       name = entry.name;
       vm = entry.value;
-      xmlFile = pkgs.writeText "libvirt-domain-${name}.xml" (mkDomainXml name vm);
+      xmlFile = pkgs.writeText "vm-${name}.xml" (mkDomainXml name vm);
     in {
-      name = "libvirt-domain-${name}";
+      name = "vm-${name}";
       value = {
-        description = "Define libvirt domain ${name}";
+        description = "Libvirt domain: ${name}";
         after = ["libvirtd.service"];
         requires = ["libvirtd.service"];
         wantedBy = ["multi-user.target"];
-        path = [pkgs.libvirt];
+        path = [pkgs.libvirt pkgs.qemu_kvm pkgs.coreutils];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
         };
         script = ''
+          # 이미지 디렉토리 확인
+          mkdir -p /var/lib/libvirt/images
+
+          # 디스크 이미지가 없으면 생성
+          if [ ! -f "/var/lib/libvirt/images/${name}.qcow2" ]; then
+            echo "Creating disk image for ${name} (${toString vm.diskSize}G)..."
+            qemu-img create -f qcow2 "/var/lib/libvirt/images/${name}.qcow2" "${toString vm.diskSize}G"
+          fi
+
+          # 도메인 정의 (이미 존재하면 UUID 충돌 방지를 위해 undefine 후 다시 정의)
+          if virsh list --all --name | grep -q "^${name}$"; then
+            echo "Domain ${name} already exists, re-defining..."
+            virsh undefine "${name}"
+          fi
           virsh define ${xmlFile}
           virsh autostart ${name}
+
+          # VM 시작 (이미 실행 중이면 무시)
+          if ! virsh list --name | grep -q "^${name}$"; then
+            echo "Starting VM ${name}..."
+            virsh start ${name}
+          fi
         '';
       };
     })

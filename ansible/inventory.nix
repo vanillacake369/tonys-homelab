@@ -11,8 +11,10 @@
 
   # VM 이름에서 Ansible role 도출 (k8s-master-* → "master")
   roleOf = name:
-    if builtins.match "k8s-master-.*" name != null then "master"
-    else if builtins.match "k8s-worker-.*" name != null then "worker"
+    if builtins.match "k8s-master-.*" name != null
+    then "master"
+    else if builtins.match "k8s-worker-.*" name != null
+    then "worker"
     else "unknown";
 
   # IP 프리픽스(/24)를 topology.nix VLAN gateway와 대조해 VLAN 이름 도출
@@ -21,13 +23,18 @@
     prefix3 = addr: let
       m = builtins.match "([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+" addr;
     in
-      if m != null then builtins.head m else "";
+      if m != null
+      then builtins.head m
+      else "";
     ipPfx = prefix3 ip;
-    matches = builtins.filter
+    matches =
+      builtins.filter
       (v: prefix3 network.vlans.${v}.gateway == ipPfx)
       (builtins.attrNames network.vlans);
   in
-    if matches != [] then builtins.head matches else "unknown";
+    if matches != []
+    then builtins.head matches
+    else "unknown";
 
   # VM 이름 목록: topology.nix vms 키 → 사전순 정렬 (master-1 < master-2 < ... < worker-3)
   allVmNames = builtins.attrNames network.vms;

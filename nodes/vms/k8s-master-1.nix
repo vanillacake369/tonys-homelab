@@ -31,11 +31,9 @@ in {
     matchConfig.MACAddress = net.mac;
     address = ["${net.ip}/24"];
     networkConfig = {
-      Gateway = network.vlans.services.gateway;
+      Gateway = network.hosts.homelab-1.vlans.services.gateway;
       DNS = network.dns;
     };
     linkConfig.RequiredForOnline = "routable";
   };
-
-  system.stateVersion = "24.11";
 }

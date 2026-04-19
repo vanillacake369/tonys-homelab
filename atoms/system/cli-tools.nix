@@ -1,5 +1,5 @@
 # Atoms: Essential CLI Tools
-{ pkgs, ... }: {
+{pkgs, ...}: {
   environment.systemPackages = with pkgs; [
     wget
     curl

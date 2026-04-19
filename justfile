@@ -23,21 +23,47 @@ host-names:
 all-names:
     @nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r '.[]'
 
-# SSH to a resolved node (physical: direct, VM: ProxyJump)
+# Tailscale IP를 동적으로 파싱 (HostName 또는 DNSName 매칭)
 [private]
-node-ssh node +cmd:
+ts-ip node:
+    @tailscale status --json 2>/dev/null | jq -r '.Peer[] | select(.HostName == "{{ node }}" or (.DNSName | startswith("{{ node }}."))) | .TailscaleIPs[0] // empty' 2>/dev/null || echo ""
+
+# SSH를 시도할 IP 결정 (LAN → Tailscale 동적 fallback)
+[private]
+resolve-ssh node:
     #!/usr/bin/env bash
-    set -euo pipefail
     info=$(just resolve {{ node }})
     ip=$(echo "$info" | jq -r '.ip')
     user=$(echo "$info" | jq -r '.user')
+    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$user@$ip" true 2>/dev/null; then
+        echo "$ip"
+    else
+        tsIp=$(just ts-ip {{ node }} || echo "")
+        if [ -n "$tsIp" ]; then echo "$tsIp"; else echo "$ip"; fi
+    fi
+
+# SSH to a resolved node (physical: LAN → Tailscale, VM: ProxyJump with fallback)
+[private]
+node-ssh node +cmd:
+    #!/usr/bin/env bash
+    info=$(just resolve {{ node }})
+    user=$(echo "$info" | jq -r '.user')
     type=$(echo "$info" | jq -r '.type')
     if [ "$type" = "physical" ]; then
-        ssh "$user@$ip" {{ cmd }}
+        target=$(just resolve-ssh {{ node }})
+        ssh "$user@$target" {{ cmd }}
     else
-        pIp=$(echo "$info" | jq -r '.parentIp')
+        ip=$(echo "$info" | jq -r '.ip')
         pUser=$(echo "$info" | jq -r '.parentUser')
-        ssh -J "$pUser@$pIp" "$user@$ip" {{ cmd }}
+        parentName=$(echo "$info" | jq -r '.parentIp' | xargs -I{} echo "{{ node }}")
+        # parent host의 LAN/Tailscale 해석
+        pIp=$(echo "$info" | jq -r '.parentIp')
+        if ssh -o ConnectTimeout=2 -o BatchMode=yes "$pUser@$pIp" true 2>/dev/null; then
+            ssh -J "$pUser@$pIp" "$user@$ip" {{ cmd }}
+        else
+            pTsIp=$(just ts-ip "$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')")
+            ssh -J "$pUser@$pTsIp" "$user@$ip" {{ cmd }}
+        fi
     fi
 
 [private]
@@ -127,20 +153,28 @@ build *nodes:
 # VM Access & Lifecycle
 # -----------------------------------------------------------------------------
 
-# SSH into any node (physical or VM)
+# SSH into any node (LAN → Tailscale 동적 fallback)
 ssh node:
     #!/usr/bin/env bash
-    set -euo pipefail
+    # NOTE: 
+    # 처리과정을 보고자한다면 아래 주석을 풀 것  
+    # set -x
     info=$(just resolve {{ node }})
-    ip=$(echo "$info" | jq -r '.ip')
     user=$(echo "$info" | jq -r '.user')
     type=$(echo "$info" | jq -r '.type')
     if [ "$type" = "physical" ]; then
-        ssh "$user@$ip"
+        target=$(just resolve-ssh {{ node }})
+        ssh "$user@$target"
     else
-        pIp=$(echo "$info" | jq -r '.parentIp')
+        ip=$(echo "$info" | jq -r '.ip')
         pUser=$(echo "$info" | jq -r '.parentUser')
-        ssh -J "$pUser@$pIp" "$user@$ip"
+        pIp=$(echo "$info" | jq -r '.parentIp')
+        if ssh -o ConnectTimeout=2 -o BatchMode=yes "$pUser@$pIp" true 2>/dev/null; then
+            ssh -J "$pUser@$pIp" "$user@$ip"
+        else
+            pTsIp=$(just ts-ip "$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')")
+            ssh -J "$pUser@$pTsIp" "$user@$ip"
+        fi
     fi
 
 # VM lifecycle: just vm start|stop|restart [name|all]

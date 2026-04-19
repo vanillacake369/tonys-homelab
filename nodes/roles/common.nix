@@ -1,6 +1,8 @@
 # nodes/roles/common.nix
 # 모든 homelab 노드가 가져야 할 공통 Atom 전략
-{ ... }: {
+{...}: {
+  system.stateVersion = "24.11";
+
   imports = [
     ../../atoms/system/nix.nix
     ../../atoms/system/locale.nix

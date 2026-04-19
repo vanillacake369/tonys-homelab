@@ -1,6 +1,7 @@
 # Atoms: Essential CLI Tools
 {pkgs, ...}: {
   environment.systemPackages = with pkgs; [
+    busybox
     wget
     curl
     rsync

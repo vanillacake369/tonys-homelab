@@ -14,11 +14,6 @@
     kubernetes-helm
   ];
 
-  # writableStoreOverlay 와 호환되지 않는 nix store 최적화 비활성화
-  nix.settings.auto-optimise-store = false;
-  nix.optimise.automatic = false;
-  nix.gc.automatic = false;
-
   # K8s master 포트 (network-base의 [22]에 병합됨)
   networking.firewall.allowedTCPPorts = [6443 2379 2380 10250 10251 10252];
 

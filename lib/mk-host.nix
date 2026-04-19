@@ -4,7 +4,6 @@
 # - deployment 설정은 mk-colmena.nix 에서 담당
 # - nixosConfigurations 선언:
 #   - disko
-#   - microvm host
 #   - sops-nix
 #   - 실제 host 선언
 {
@@ -24,7 +23,6 @@
     # Host 패키지 주입
     imports = [
       inputs.disko.nixosModules.disko
-      inputs.microvm.nixosModules.host
       inputs.sops-nix.nixosModules.sops
       ../nodes/interface.nix
       ../nodes/physical/${name}.nix

@@ -1,122 +1,54 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 topology := "./network/topology.nix"
-resolver := "./lib/resolve-node.nix"
 
-# Resolve node → {ip, user, type, parentIp, parentUser}
-[private]
-resolve node:
-    @nix eval --impure --json --expr '(import {{ resolver }} { node = "{{ node }}"; })'
-
-# Comma-separated VM names
-[private]
-vm-names:
-    @nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")'
-
-# Physical host names (space-separated)
-[private]
-host-names:
-    @nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r '.[]'
-
-# All node names (space-separated)
-[private]
-all-names:
-    @nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r '.[]'
-
-# Tailscale IP를 동적으로 파싱 (HostName 또는 DNSName 매칭)
-[private]
-ts-ip node:
-    @tailscale status --json 2>/dev/null | jq -r '.Peer[] | select(.HostName == "{{ node }}" or (.DNSName | startswith("{{ node }}."))) | .TailscaleIPs[0] // empty' 2>/dev/null || echo ""
-
-# SSH를 시도할 IP 결정 (LAN → Tailscale 동적 fallback)
-[private]
-resolve-ssh node:
-    #!/usr/bin/env bash
-    info=$(just resolve {{ node }})
-    ip=$(echo "$info" | jq -r '.ip')
-    user=$(echo "$info" | jq -r '.user')
-    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$user@$ip" true 2>/dev/null; then
-        echo "$ip"
-    else
-        tsIp=$(just ts-ip {{ node }} || echo "")
-        if [ -n "$tsIp" ]; then echo "$tsIp"; else echo "$ip"; fi
-    fi
-
-# SSH to a resolved node (physical: LAN → Tailscale, VM: ProxyJump with fallback)
-[private]
-node-ssh node +cmd:
-    #!/usr/bin/env bash
-    info=$(just resolve {{ node }})
-    user=$(echo "$info" | jq -r '.user')
-    type=$(echo "$info" | jq -r '.type')
-    if [ "$type" = "physical" ]; then
-        target=$(just resolve-ssh {{ node }})
-        ssh "$user@$target" {{ cmd }}
-    else
-        ip=$(echo "$info" | jq -r '.ip')
-        pUser=$(echo "$info" | jq -r '.parentUser')
-        parentName=$(echo "$info" | jq -r '.parentIp' | xargs -I{} echo "{{ node }}")
-        # parent host의 LAN/Tailscale 해석
-        pIp=$(echo "$info" | jq -r '.parentIp')
-        if ssh -o ConnectTimeout=2 -o BatchMode=yes "$pUser@$pIp" true 2>/dev/null; then
-            ssh -J "$pUser@$pIp" "$user@$ip" {{ cmd }}
-        else
-            pTsIp=$(just ts-ip "$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')")
-            ssh -J "$pUser@$pTsIp" "$user@$ip" {{ cmd }}
-        fi
-    fi
-
-[private]
-colmena +args:
-    nix run --impure .#colmena -- {{ args }}
-
-# Eval check (로컬, 수 초) → apply
-[private]
-safe-deploy +nodes:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set -x
-    echo "=== Eval check: {{ nodes }} ==="
-    for node in $(echo "{{ nodes }}" | tr ',' ' '); do
-        nix eval --impure --expr "(builtins.getFlake \"git+file://$PWD\").colmenaHive.nodes.$node.config.system.build.toplevel" >/dev/null
-        echo "  $node: OK"
+# 동적 SSH config (topology.nix + tailscale → .cache/ssh-config)
+# justfile 실행 시 1회 평가, 모든 recipe에서 재사용
+ssh-config := ```
+  mkdir -p .cache
+  config_file=".cache/ssh-config"
+  hosts_json=$(nix eval --impure --json --expr '(import ./network/topology.nix).hosts')
+  ts_json=$(tailscale status --json 2>/dev/null || echo '{"Peer":[]}')
+  {
+    for host in $(echo "$hosts_json" | jq -r 'keys[]'); do
+      user=$(echo "$hosts_json" | jq -r ".\"$host\".user")
+      ts_ip=$(echo "$ts_json" | jq -r ".Peer[] | select(.HostName == \"$host\" or (.DNSName | startswith(\"$host.\"))) | .TailscaleIPs[0] // empty" 2>/dev/null || echo "")
+      if [ -z "$ts_ip" ]; then
+        ts_ip=$(echo "$hosts_json" | jq -r ".\"$host\".ip")
+      fi
+      echo "Host $host"
+      echo "    HostName $ts_ip"
+      echo "    User $user"
+      echo "    StrictHostKeyChecking no"
+      echo ""
     done
-    echo ""
-    echo "=== Applying: {{ nodes }} ==="
-    just colmena apply --on "{{ nodes }}" --verbose
+    first_host=$(echo "$hosts_json" | jq -r 'keys[0]')
+    echo "Host 10.0.20.* k8s-master-* k8s-worker-*"
+    echo "    User root"
+    echo "    ProxyJump $first_host"
+    echo "    StrictHostKeyChecking no"
+    echo "    UserKnownHostsFile /dev/null"
+  } > "$config_file"
+  echo "$config_file"
+```
 
+# =============================================================================
+# Private: 인프라 헬퍼
+# =============================================================================
+
+# Colmena wrapper (SSH_CONFIG_FILE로 동적 SSH config 주입)
 [private]
-wait-vms:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Waiting for VM fleet..."
-    for host in $(just host-names); do
-        info=$(just resolve "$host")
-        hIp=$(echo "$info" | jq -r '.ip')
-        hUser=$(echo "$info" | jq -r '.user')
-        vms=$(nix eval --impure --json --expr '(import {{ topology }}).vms' | jq -r '.[] | .ip')
-        for ip in $vms; do
-            until ssh "$hUser@$hIp" "nc -zvw1 $ip 22" &>/dev/null; do printf "."; sleep 1; done
-            echo " $ip OK"
-        done
-    done
+_colmena +args:
+    SSH_CONFIG_FILE={{ ssh-config }} nix run --impure .#colmena -- {{ args }}
 
+# SSH to any node (ssh-config이 host/VM 라우팅 자동 처리)
 [private]
-ansible tags extra="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    host=$(just host-names | head -1)
-    info=$(just resolve "$host")
-    target=$(echo "$info" | jq -r '.ip')
-    key=$(ssh -G "$target" | awk '/^identityfile / {print $2; exit}')
-    key="${key/#\~/$HOME}"
-    [ -f "$key" ] || key="$HOME/.ssh/id_ed25519"
-    DEPLOY_TARGET="$target" ansible-playbook -i ansible/inventory.py ansible/site.yml \
-        --private-key "$key" --tags {{ tags }} {{ extra }} -v
+_ssh node +cmd:
+    ssh -F {{ ssh-config }} {{ node }} {{ cmd }}
 
-# -----------------------------------------------------------------------------
-# Build & Deploy
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Deploy (Colmena)
+# =============================================================================
 
 # Deploy all (host first → VMs)
 deploy-all: deploy-host deploy-vms
@@ -125,46 +57,59 @@ deploy-all: deploy-host deploy-vms
 deploy-host:
     #!/usr/bin/env bash
     set -euo pipefail
-    hosts=$(just host-names | tr '\n' ',')
-    just safe-deploy "${hosts%,}"
+    hosts=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
+    just _safe-deploy "$hosts"
 
 # Deploy all VMs
 deploy-vms:
-    just safe-deploy "$(just vm-names)"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vms=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
+    just _safe-deploy "$vms"
 
 # Deploy specific node(s): just deploy k8s-master-1 k8s-worker-1
 deploy +nodes:
     #!/usr/bin/env bash
     set -euo pipefail
     targets=$(echo "{{ nodes }}" | tr ' ' ',')
-    just safe-deploy "$targets"
+    just _safe-deploy "$targets"
 
 # Build only (no apply)
 build *nodes:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{ nodes }}" ]; then
-        just colmena build --verbose
+        just _colmena build --verbose
     else
         targets=$(echo "{{ nodes }}" | tr ' ' ',')
-        just colmena build --on "$targets" --verbose
+        just _colmena build --on "$targets" --verbose
     fi
 
-# -----------------------------------------------------------------------------
-# VM Image Provisioning
-# -----------------------------------------------------------------------------
+# Eval check → Colmena apply
+[private]
+_safe-deploy +nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Eval check: {{ nodes }} ==="
+    for node in $(echo "{{ nodes }}" | tr ',' ' '); do
+        nix eval --impure --expr "(builtins.getFlake \"git+file://$PWD\").colmenaHive.nodes.$node.config.system.build.toplevel" >/dev/null
+        echo "  $node: OK"
+    done
+    echo ""
+    echo "=== Applying: {{ nodes }} ==="
+    just _colmena apply --on "{{ nodes }}" --verbose
 
-# VM QCOW2 이미지 빌드 (homelab-1에서 원격 빌드)
+# =============================================================================
+# VM Image Provisioning
+# =============================================================================
+
+# VM QCOW2 이미지 빌드 (물리 호스트에서 원격 빌드)
 build-images *vms:
     #!/usr/bin/env bash
     set -euo pipefail
-    host=$(just host-names | head -1)
-    info=$(just resolve "$host")
-    ip=$(echo "$info" | jq -r '.ip')
-    user=$(echo "$info" | jq -r '.user')
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
     remote_dir="/tmp/homelab-build"
 
-    # 빌드 대상 결정
     if [ -z "{{ vms }}" ]; then
         targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
     else
@@ -172,26 +117,28 @@ build-images *vms:
     fi
 
     echo "=== Syncing repo to $host ==="
-    ssh "$user@$ip" "rm -rf $remote_dir"
-    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' . "$user@$ip:$remote_dir/"
+    ssh -F {{ ssh-config }} -o ConnectTimeout=10 "$host" "rm -rf $remote_dir"
+    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' \
+        -e "ssh -F {{ ssh-config }} -o ConnectTimeout=10" . "$host:$remote_dir/"
 
     for vm in $targets; do
         echo "=== Building image: $vm ==="
-        ssh "$user@$ip" "cd $remote_dir && nix build --impure '.#$vm' -o /tmp/image-$vm"
+        ssh -F {{ ssh-config }} "$host" "cd $remote_dir && nix build --impure '.#$vm' -o /tmp/image-$vm"
         echo "=== Copying to base images ==="
-        ssh "$user@$ip" "sudo mkdir -p /var/lib/libvirt/images/base && sudo cp /tmp/image-$vm/nixos.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
-        ssh "$user@$ip" "rm -f /tmp/image-$vm"
+        ssh -F {{ ssh-config }} "$host" "sudo mkdir -p /var/lib/libvirt/images/base && sudo cp /tmp/image-$vm/*.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+        ssh -F {{ ssh-config }} "$host" "rm -f /tmp/image-$vm"
         echo "  $vm: OK"
     done
 
-    ssh "$user@$ip" "rm -rf $remote_dir"
+    ssh -F {{ ssh-config }} "$host" "rm -rf $remote_dir"
     echo "=== Done. Run 'just provision-vms' to apply. ==="
 
 # VM 프로비저닝 (base 이미지 → 실제 디스크 복사 + VM 재시작)
 provision-vms *vms:
     #!/usr/bin/env bash
     set -euo pipefail
-    host=$(just host-names | head -1)
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
+    ssh_timeout_s="${PROVISION_SSH_TIMEOUT:-300}"
 
     if [ -z "{{ vms }}" ]; then
         targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
@@ -201,82 +148,75 @@ provision-vms *vms:
 
     for vm in $targets; do
         echo "=== Provisioning: $vm ==="
-        # VM 정지
-        just node-ssh "$host" "sudo virsh destroy $vm 2>/dev/null || true"
-        # 기존 디스크 삭제 → systemd 서비스가 base 이미지에서 재생성
-        just node-ssh "$host" "sudo rm -f /var/lib/libvirt/images/$vm.qcow2"
-        # systemd 서비스 재실행 (base 이미지 복사 + VM 시작)
-        just node-ssh "$host" "sudo systemctl restart vm-$vm.service"
+        just _ssh "$host" "sudo virsh destroy $vm 2>/dev/null || true"
+        just _ssh "$host" "sudo rm -f /var/lib/libvirt/images/$vm.qcow2"
+        just _ssh "$host" "sudo systemctl restart vm-$vm.service"
         echo "  $vm: provisioned"
     done
 
-    echo "=== All VMs provisioned. Waiting for SSH... ==="
-    just wait-vms
+    echo "=== Waiting for SSH on provisioned VMs... ==="
+    for vm in $targets; do
+        vm_ip=$(nix eval --impure --raw --expr "(import {{ topology }}).vms.$vm.ip")
+        printf "  Waiting for $vm ($vm_ip)..."
+        start_ts=$(date +%s)
+        while true; do
+            if just _ssh "$host" "nc -zvw1 $vm_ip 22" &>/dev/null; then
+                echo " OK"
+                break
+            fi
+            elapsed=$(( $(date +%s) - start_ts ))
+            if [ "$elapsed" -ge "$ssh_timeout_s" ]; then
+                echo " TIMEOUT (${ssh_timeout_s}s)"
+                just _ssh "$host" "sudo journalctl -u 'vm-$vm.service' -n 30 --no-pager || true"
+                exit 1
+            fi
+            printf "."
+            sleep 2
+        done
+    done
     echo "=== Done. Run 'just deploy-vms' to apply latest config. ==="
 
-# -----------------------------------------------------------------------------
-# VM Access & Lifecycle
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Access & Lifecycle
+# =============================================================================
 
-# SSH into any node (LAN → Tailscale 동적 fallback)
+# SSH into any node
 ssh node:
-    #!/usr/bin/env bash
-    info=$(just resolve {{ node }})
-    user=$(echo "$info" | jq -r '.user')
-    type=$(echo "$info" | jq -r '.type')
-    if [ "$type" = "physical" ]; then
-        target=$(just resolve-ssh {{ node }})
-        ssh "$user@$target"
-    else
-        ip=$(echo "$info" | jq -r '.ip')
-        pUser=$(echo "$info" | jq -r '.parentUser')
-        pIp=$(echo "$info" | jq -r '.parentIp')
-        if ssh -o ConnectTimeout=2 -o BatchMode=yes "$pUser@$pIp" true 2>/dev/null; then
-            ssh -J "$pUser@$pIp" "$user@$ip"
-        else
-            pTsIp=$(just ts-ip "$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')")
-            ssh -J "$pUser@$pTsIp" "$user@$ip"
-        fi
-    fi
+    ssh -F {{ ssh-config }} {{ node }}
 
 # VM lifecycle: just vm start|stop|restart [name|all]
 vm action name="all":
     #!/usr/bin/env bash
     set -euo pipefail
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
     if [ "{{ name }}" = "all" ]; then
         vms=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
     else
         vms="{{ name }}"
     fi
-    # action map: stop -> shutdown, restart -> reboot
     case "{{ action }}" in
         stop) virsh_cmd="shutdown" ;;
         restart) virsh_cmd="reboot" ;;
         *) virsh_cmd="{{ action }}" ;;
     esac
-
-    for host in $(just host-names); do
-        for vm in $vms; do
-            echo "$virsh_cmd-ing $vm on $host..."
-            just node-ssh "$host" "sudo virsh $virsh_cmd $vm" &
-        done
+    for vm in $vms; do
+        echo "$virsh_cmd-ing $vm on $host..."
+        just _ssh "$host" "sudo virsh $virsh_cmd $vm" &
     done
     wait
     echo "Done."
 
-# -----------------------------------------------------------------------------
-# Examination
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Status
+# =============================================================================
 
 # System health (all hosts + VMs)
 status:
     #!/usr/bin/env bash
     set -euo pipefail
-    for host in $(just host-names); do
-        info=$(just resolve "$host")
-        ip=$(echo "$info" | jq -r '.ip')
-        echo "=== Host: $host ($ip) ==="
-        just node-ssh "$host" "bash -c 'uptime && echo && df -h / /nix/store 2>/dev/null'" || echo "Unreachable"
+    for host in $(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r '.[]'); do
+        echo "=== Host: $host ==="
+        just _ssh "$host" "bash -c 'uptime && echo && df -h / /nix/store 2>/dev/null'" || echo "Unreachable"
         echo ""
     done
     just vm-status
@@ -285,130 +225,109 @@ status:
 vm-status:
     #!/usr/bin/env bash
     set -euo pipefail
-    # 
-    for host in $(just host-names); do
-        echo "=== Libvirt Domains ($host) ==="
-        just node-ssh "$host" "sudo virsh list --all" || true
-    done
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
+    echo "=== Libvirt Domains ==="
+    just _ssh "$host" "sudo virsh list --all" || true
     echo ""
     echo "=== VM Connectivity ==="
     vms=$(nix eval --impure --json --expr '(import {{ topology }}).vms' | jq -r 'to_entries[] | "\(.key) \(.value.ip)"')
-    host=$(just host-names | head -1)
     while IFS=' ' read -r name ip; do
-        if just node-ssh "$host" "nc -zvw2 $ip 22" &>/dev/null; then
+        if just _ssh "$host" "nc -zvw2 $ip 22" &>/dev/null; then
             echo "  $name ($ip): OK"
         else
             echo "  $name ($ip): UNREACHABLE"
         fi
     done <<< "$vms"
 
-# Network: bridge, VLAN, routing (all hosts)
+# Network: bridge, VLAN, routing
 net:
     #!/usr/bin/env bash
     set -euo pipefail
-    # 
-    for host in $(just host-names); do
+    for host in $(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r '.[]'); do
         echo "=== Network: $host ==="
         echo "--- Bridge & VLAN ---"
-        just node-ssh "$host" "bridge vlan show 2>/dev/null || echo 'N/A'"
+        just _ssh "$host" "bridge vlan show 2>/dev/null || echo 'N/A'"
         echo "--- Interfaces ---"
-        just node-ssh "$host" "networkctl list"
+        just _ssh "$host" "networkctl list"
         echo "--- Routes ---"
-        just node-ssh "$host" "ip route"
+        just _ssh "$host" "ip route"
         echo ""
     done
 
-# Generate topology diagram (build on remote host, copy results back)
+# Generate topology diagram
 topology-diagram:
     #!/usr/bin/env bash
-
-    host=$(just host-names | head -1)
-    info=$(just resolve "$host")
-    ip=$(echo "$info" | jq -r '.ip')
-    user=$(echo "$info" | jq -r '.user')
+    set -euo pipefail
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
     remote_dir="/tmp/homelab-topology"
     echo "=== Syncing repo to $host ==="
-    ssh "$user@$ip" "rm -rf $remote_dir"
-    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' . "$user@$ip:$remote_dir/"
+    ssh -F {{ ssh-config }} "$host" "rm -rf $remote_dir"
+    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' \
+        -e "ssh -F {{ ssh-config }}" . "$host:$remote_dir/"
     echo "=== Building topology on $host ==="
-    ssh "$user@$ip" "cd $remote_dir && nix build --impure '.#topology.x86_64-linux.config.output' -o /tmp/topology-result"
+    just _ssh "$host" "cd $remote_dir && nix build --impure '.#topology.x86_64-linux.config.output' -o /tmp/topology-result"
     rm -rf result-topology
     mkdir -p result-topology
-    scp -r "$user@$ip:/tmp/topology-result/*" result-topology/
-    ssh "$user@$ip" "rm -rf $remote_dir /tmp/topology-result"
+    scp -F {{ ssh-config }} -r "$host:/tmp/topology-result/*" result-topology/
+    just _ssh "$host" "rm -rf $remote_dir /tmp/topology-result"
     echo "=== SVGs generated in ./result-topology/ ==="
     ls result-topology/
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Kubernetes
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 # Full lifecycle: clean → bootstrap → verify
 k8s-deploy: k8s-clean k8s-bootstrap k8s-verify
 
 # Bootstrap cluster
-k8s-bootstrap: wait-vms
-    just ansible bootstrap
+k8s-bootstrap:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
+    target=$(ssh -F {{ ssh-config }} -G "$host" | awk '/^hostname / {print $2; exit}')
+    key="$HOME/.ssh/id_ed25519"
+    DEPLOY_TARGET="$target" ansible-playbook -i ansible/inventory.py ansible/site.yml \
+        --private-key "$key" --tags bootstrap -v
 
 # Reset cluster
-k8s-clean: wait-vms
-    just ansible cleanup "-e reset_cluster=true"
+k8s-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
+    target=$(ssh -F {{ ssh-config }} -G "$host" | awk '/^hostname / {print $2; exit}')
+    key="$HOME/.ssh/id_ed25519"
+    DEPLOY_TARGET="$target" ansible-playbook -i ansible/inventory.py ansible/site.yml \
+        --private-key "$key" --tags cleanup -e reset_cluster=true -v
 
-# Comprehensive cluster health check
+# Cluster health check
 k8s-verify:
     #!/usr/bin/env bash
     set -euo pipefail
-
+    host=$(nix eval --impure --raw --expr 'builtins.head (builtins.attrNames (import {{ topology }}).hosts)')
     master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
         | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
     api_vip=$(nix eval --impure --raw --expr '(import {{ topology }}).kubernetes.api_vip')
-    host=$(just host-names | head -1)
 
-    # Helper: run kubectl on first master via host
-    kc() { just node-ssh "$host" "ssh -o StrictHostKeyChecking=no root@$master_ip $*" 2>/dev/null; }
+    kc() { just _ssh "$host" "ssh -o StrictHostKeyChecking=no root@$master_ip $*" 2>/dev/null; }
 
     echo "=== API Health (VIP: $api_vip) ==="
     kc "curl -sk https://$api_vip:6443/healthz" && echo "" || echo "UNHEALTHY"
-
     echo ""
     echo "=== Nodes ==="
     kc "kubectl get nodes -o wide" || echo "unavailable"
-
     echo ""
     echo "=== kube-system Pods ==="
     kc "kubectl get pods -n kube-system -o wide" || echo "unavailable"
-
-    echo ""
-    echo "=== etcd Health ==="
-    kc "ETCDCTL_API=3 etcdctl \
-        --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-        --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
-        --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
-        endpoint health --cluster" || echo "unavailable"
-
-    echo ""
-    echo "=== Component Status ==="
-    for component in kube-apiserver kube-controller-manager kube-scheduler etcd; do
-        echo "--- $component (last 10 lines) ---"
-        kc "kubectl logs -n kube-system -l component=$component --tail=10 2>/dev/null" || echo "no logs"
-        echo ""
-    done
-
-    echo "=== Cilium Status ==="
-    kc "kubectl -n kube-system get pods -l app.kubernetes.io/name=cilium -o wide" || echo "unavailable"
-    echo ""
-    echo "--- Cilium Agent Logs (last 10 lines) ---"
-    kc "kubectl -n kube-system logs -l app.kubernetes.io/name=cilium-agent --tail=10 2>/dev/null" || echo "no logs"
-
     echo ""
     echo "=== Cluster Join Summary ==="
     expected=$(nix eval --impure --json --expr 'builtins.length (builtins.attrNames (import {{ topology }}).vms)')
     actual=$(kc "kubectl get nodes --no-headers 2>/dev/null | wc -l" || echo "0")
     echo "Expected: $expected nodes, Actual: $actual nodes"
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Maintenance
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 # Validate flake
 check:
@@ -422,13 +341,12 @@ update:
 gc *nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -x
     if [ -z "{{ nodes }}" ]; then
-        targets=$(just all-names)
+        targets=$(nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r '.[]')
     else
         targets="{{ nodes }}"
     fi
     for node in $targets; do
         echo "=== GC: $node ==="
-        just node-ssh "$node" "sudo nix-collect-garbage -d && sudo nix-store --optimize && sudo journalctl --vacuum-time=1d" || echo "Failed"
+        just _ssh "$node" "sudo nix-collect-garbage -d && sudo nix-store --optimize && sudo journalctl --vacuum-time=1d" || echo "Failed"
     done

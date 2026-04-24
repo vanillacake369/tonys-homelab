@@ -1,24 +1,11 @@
 # VM QCOW2 이미지 빌드 헬퍼
-# nixos-generators로 각 VM의 nixosConfiguration을 QCOW2 이미지로 변환
+# NixOS 내장 system.build.images.qemu 사용 (nixos-generators deprecated since 25.05)
 # 사용: nix build .#k8s-master-1 (타겟 아키텍처에서만 빌드 가능)
 {
   lib,
-  inputs,
-  targetSystem,
+  nixosConfigurations,
 }: let
-  discoverNodes = import ./extract-filename.nix {inherit lib;};
-  vmNames = discoverNodes ../nodes/vms;
-
-  mkImage = name:
-    inputs.nixos-generators.nixosGenerate {
-      system = targetSystem;
-      format = "qcow";
-      modules = [
-        inputs.sops-nix.nixosModules.sops
-        ../nodes/interface.nix
-        ../nodes/vms/${name}.nix
-      ];
-      specialArgs = {inherit inputs;};
-    };
+  # VM 노드만 필터링 (k8s-* prefix)
+  vmConfigs = lib.filterAttrs (name: _: lib.hasPrefix "k8s-" name) nixosConfigurations;
 in
-  lib.genAttrs vmNames mkImage
+  lib.mapAttrs (_: config: config.config.system.build.images.qemu) vmConfigs

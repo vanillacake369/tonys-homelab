@@ -131,21 +131,6 @@ _: {
           };
         };
 
-        # ==========================================
-        # Vault 전용 (보안 격리)
-        # ==========================================
-        vault = {
-          size = "20G"; # Thick - 중요 데이터
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/var/lib/vault";
-            mountOptions = [
-              "noatime"
-              "data=ordered" # 무결성 우선
-            ];
-          };
-        };
       };
     };
   };

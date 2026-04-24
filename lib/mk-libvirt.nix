@@ -57,6 +57,7 @@
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
+          ExecStop = "${pkgs.libvirt}/bin/virsh destroy ${name}";
         };
         script = ''
           mkdir -p /var/lib/libvirt/images

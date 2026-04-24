@@ -11,7 +11,7 @@ hosts/*/hardware-configuration.nix
 # Secrets and keys
 *.key
 *.pem
-secrets/ssh-public-key.txt
+secrets/vm-master.key
 # lib/homelab-constants.nix
 
 # Editor files

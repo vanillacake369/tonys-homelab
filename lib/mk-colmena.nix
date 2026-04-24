@@ -26,6 +26,15 @@
       targetUser = config.node.user;
       buildOnTarget = true;
       allowLocalDeployment = config.node.hostType == "physical";
+
+      # VM 노드인 경우 공통 마스터 키 주입 (sops-nix 복호용)
+      keys."vm-master.key" = lib.mkIf (config.node.hostType == "vm") {
+        keyCommand = ["cat" "secrets/vm-master.key"];
+        destDir = "/var/lib/sops-nix";
+        user = "root";
+        group = "root";
+        permissions = "0400";
+      };
     };
   };
 

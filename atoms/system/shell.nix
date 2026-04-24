@@ -1,6 +1,7 @@
 {pkgs, ...}: {
   programs.fish = {
     enable = true;
+
     shellAliases = {
       ll = "ls -l";
       cat = "bat --style=plain --paging=never";
@@ -15,37 +16,47 @@
     interactiveShellInit = ''
       set -g fish_greeting
 
-      # Tide 설정이 되어있지 않은 경우 자동 설정 (최초 1회 혹은 변동 시)
-      # if not set -q __tide_setup_complete
-      #   # 프롬프트 스타일 설정 (Lean style 기반)
-      #   set -U tide_character_icon '❯'
-      #   set -U tide_character_color 5FD700
-      #   set -U tide_context_always_display false
-      #   set -U tide_context_color_default D7AF00
-      #   set -U tide_context_color_root D75F00
-      #   set -U tide_cpu_color 5F875F
-      #   set -U tide_cpu_display_threshold 90
-      #   set -U tide_direnv_color D7AF00
-      #   set -U tide_direnv_display_possibility true
-      #   set -U tide_git_color_branch 5FD700
-      #   set -U tide_git_color_dirty D75F00
-      #   set -U tide_git_color_staged D7AF00
-      #   set -U tide_git_color_upstream 5FD700
-      #   set -U tide_left_prompt_items context pwd git newline character
-      #   set -U tide_right_prompt_items status cmd_duration admin direnv node python rust terraform nix_shell crystal jobs
-      #   set -U tide_pwd_color_anchors 00AFFF
-      #   set -U tide_pwd_color_dirs 0087AF
-      #   set -U tide_pwd_color_truncated_dirs 878787
-      #
-      #   set -U __tide_setup_complete true
-      # end
+      # ========================================================================
+      # Tide 프롬프트 자동 부트스트랩 (사용자 요청 방식 + 즉시 반영 v5)
+      # ========================================================================
+      if status is-interactive
+          # 1. Tide 경로 확보
+          if not type -q tide
+              set -lp fish_function_path ${pkgs.fishPlugins.tide}/share/fish/vendor_functions.d
+          end
+
+          # 2. 자동 설정 실행 (v5)
+          if type -q tide; and not set -q __nixos_tide_bootstrap_v5
+              tide configure \
+                  --auto \
+                  --style=Lean \
+                  --prompt_colors='True color' \
+                  --show_time=No \
+                  --lean_prompt_height='Two lines' \
+                  --prompt_connection=Disconnected \
+                  --prompt_spacing=Sparse \
+                  --icons='Many icons' \
+                  --transient=No >/dev/null 2>&1
+
+              # [핵심] 현재 세션에 즉시 반영
+              tide reload >/dev/null 2>&1
+
+              set -U __nixos_tide_bootstrap_v5 applied
+          end
+      end
+
+      # ========================================================================
+      # 기타 도구 초기화
+      # ========================================================================
+      if type -q zoxide; zoxide init fish | source; end
+      if type -q direnv; direnv hook fish | source; end
     '';
   };
 
   environment.systemPackages = with pkgs; [
+    fishPlugins.tide
     fishPlugins.bass
     fishPlugins.done
-    fishPlugins.tide
     fzf
     zoxide
     direnv

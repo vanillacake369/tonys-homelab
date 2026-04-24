@@ -23,12 +23,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # VM 이미지 빌드 (nixos-generators)
-    nixos-generators = {
-      url = "github:nix-community/nixos-generators";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # Topology 다이어그램 생성툴
     nix-topology = {
       url = "github:oddlama/nix-topology";
@@ -50,13 +44,6 @@
     # Architecture 별 패키지 생성 헬퍼
     forAllSystems = f: lib.genAttrs supportedSystems f;
 
-    # VM QCOW2 이미지 빌드 (타겟 아키텍처 전용)
-    vmImages = import ./lib/mk-images.nix {inherit lib inputs targetSystem;};
-
-    packages = forAllSystems (sys:
-      {inherit (inputs.colmena.packages.${sys}) colmena;}
-      // lib.optionalAttrs (sys == targetSystem) vmImages);
-
     # Host 구성 헬퍼함수인 mk-host
     mkHost = import ./lib/mk-host.nix {inherit lib inputs targetSystem;};
 
@@ -77,6 +64,13 @@
         specialArgs = {inherit inputs;};
       })
     allNodes;
+
+    # VM QCOW2 이미지 빌드 (NixOS 내장 system.build.images.qemu)
+    vmImages = import ./lib/mk-images.nix {inherit lib nixosConfigurations;};
+
+    packages = forAllSystems (sys:
+      {inherit (inputs.colmena.packages.${sys}) colmena;}
+      // lib.optionalAttrs (sys == targetSystem) vmImages);
   in {
     inherit packages nixosConfigurations;
 

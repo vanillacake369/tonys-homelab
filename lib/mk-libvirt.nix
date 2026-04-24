@@ -63,6 +63,7 @@
             if [ -f "/var/lib/libvirt/images/base/${name}.qcow2" ]; then
               echo "Provisioning ${name} from base image..."
               cp "/var/lib/libvirt/images/base/${name}.qcow2" "/var/lib/libvirt/images/${name}.qcow2"
+              chmod 644 "/var/lib/libvirt/images/${name}.qcow2"
               qemu-img resize "/var/lib/libvirt/images/${name}.qcow2" "${toString vm.diskSize}G"
             else
               echo "WARNING: No base image for ${name}, creating empty disk (${toString vm.diskSize}G)"
@@ -70,13 +71,10 @@
             fi
           fi
 
-          # 도메인 정의 (idempotent: 존재하면 갱신, 없으면 생성)
-          # 실행 중인 VM은 undefine하지 않음 (UUID 충돌 방지)
-          if virsh dominfo "${name}" &>/dev/null; then
-            echo "Domain ${name} exists, skipping define."
-          else
-            virsh define ${xmlFile}
-          fi
+          # 도메인 정의/갱신 (idempotent)
+          # NOTE: topology 변경(특히 MAC)이 VM 내부 네트워크 매칭에 영향을 주므로,
+          #       기존 도메인이 있어도 XML을 항상 갱신한다.
+          virsh define "${xmlFile}"
           virsh autostart ${name} 2>/dev/null || true
 
           # VM 시작 (이미 실행 중이면 무시)

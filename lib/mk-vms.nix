@@ -18,6 +18,9 @@
     nixpkgs.hostPlatform = lib.mkDefault targetSystem;
     networking.hostName = lib.mkDefault name;
 
+    # 시리얼 콘솔 활성화 (virsh console 접근용)
+    boot.kernelParams = ["console=ttyS0,115200"];
+
     imports = [
       inputs.sops-nix.nixosModules.sops
       ../nodes/interface.nix

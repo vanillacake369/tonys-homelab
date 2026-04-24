@@ -6,6 +6,7 @@
   imports = [
     ../../atoms/system/nix.nix
     ../../atoms/system/locale.nix
+    ../../atoms/system/timesyncd.nix
     ../../atoms/system/shell.nix
     ../../atoms/system/cli-tools.nix
     ../../atoms/network/ssh-server.nix

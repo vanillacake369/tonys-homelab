@@ -35,6 +35,9 @@
         </interface>
         <serial type='pty'><target port='0'/></serial>
         <console type='pty'><target type='serial' port='0'/></console>
+        <rng model='virtio'>
+          <backend model='random'>/dev/urandom</backend>
+        </rng>
       </devices>
     </domain>
   '';
@@ -50,7 +53,7 @@
         after = ["libvirtd.service"];
         requires = ["libvirtd.service"];
         wantedBy = ["multi-user.target"];
-        path = [pkgs.libvirt pkgs.qemu_kvm pkgs.coreutils pkgs.iproute2 pkgs.bridge-utils pkgs.gawk pkgs.gnugrep];
+        path = [pkgs.libvirt pkgs.qemu_kvm pkgs.coreutils pkgs.iproute2 pkgs.bridge-utils pkgs.gawk pkgs.gnugrep pkgs.grub2 pkgs.util-linux];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -72,9 +75,16 @@
           fi
 
           # 도메인 정의/갱신 (idempotent)
-          # NOTE: topology 변경(특히 MAC)이 VM 내부 네트워크 매칭에 영향을 주므로,
-          #       기존 도메인이 있어도 XML을 항상 갱신한다.
-          virsh define "${xmlFile}"
+          if virsh dominfo "${name}" &>/dev/null; then
+            if virsh list --name | grep -q "^${name}$"; then
+              echo "Domain ${name} is running, skipping redefine."
+            else
+              virsh undefine "${name}" 2>/dev/null || true
+              virsh define "${xmlFile}"
+            fi
+          else
+            virsh define "${xmlFile}"
+          fi
           virsh autostart ${name} 2>/dev/null || true
 
           # VM 시작 (이미 실행 중이면 무시)

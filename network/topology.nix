@@ -58,6 +58,7 @@
   # VM 레지스트리: 네트워크 할당 + 컴퓨트 리소스
   vms = {
     k8s-master-1 = {
+      host = "homelab-1";
       ip = "10.0.20.10";
       mac = "02:00:00:00:20:10";
       tapId = "vm-k8s-m1";
@@ -66,6 +67,7 @@
       diskSize = 40;
     };
     k8s-master-2 = {
+      host = "homelab-1";
       ip = "10.0.20.11";
       mac = "02:00:00:00:20:11";
       tapId = "vm-k8s-m2";
@@ -74,6 +76,7 @@
       diskSize = 40;
     };
     k8s-master-3 = {
+      host = "homelab-1";
       ip = "10.0.20.12";
       mac = "02:00:00:00:20:12";
       tapId = "vm-k8s-m3";
@@ -82,6 +85,7 @@
       diskSize = 40;
     };
     k8s-worker-1 = {
+      host = "homelab-1";
       ip = "10.0.20.21";
       mac = "02:00:00:00:20:21";
       tapId = "vm-k8s-w1";
@@ -90,6 +94,7 @@
       diskSize = 60;
     };
     k8s-worker-2 = {
+      host = "homelab-1";
       ip = "10.0.20.22";
       mac = "02:00:00:00:20:22";
       tapId = "vm-k8s-w2";
@@ -98,6 +103,7 @@
       diskSize = 40;
     };
     k8s-worker-3 = {
+      host = "homelab-1";
       ip = "10.0.20.23";
       mac = "02:00:00:00:20:23";
       tapId = "vm-k8s-w3";

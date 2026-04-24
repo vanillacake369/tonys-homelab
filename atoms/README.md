@@ -23,6 +23,7 @@ flowchart LR
   subgraph System["system/"]
     nix["nix.nix"]
     locale["locale.nix"]
+    tsync["timesyncd.nix"]
     shell["shell.nix"]
     cli["cli-tools.nix"]
     keys["authorized-keys.nix"]
@@ -43,7 +44,7 @@ flowchart LR
     cilium["cni-cilium.nix"]
   end
 
-  Common["roles/common.nix"] --> nix & locale & shell & cli & keys & base & sshS
+  Common["roles/common.nix"] --> nix & locale & tsync & shell & cli & keys & base & sshS
   Host["roles/host.nix"] --> Common & sops & ts
   KMaster["roles/k8s-master.nix"] --> Common & cri & kubelet & compat & cilium
   KWorker["roles/k8s-worker.nix"] --> Common & cri & kubelet & compat
@@ -58,6 +59,7 @@ flowchart LR
 |------|------|
 | `system/nix.nix` | Nix 설정 (flakes, gc) |
 | `system/locale.nix` | 시간대, 로케일 |
+| `system/timesyncd.nix` | 시간 동기화 (NTP) |
 | `system/shell.nix` | 기본 쉘 설정 |
 | `system/cli-tools.nix` | 공통 CLI 도구 |
 | `system/authorized-keys.nix` | SSH 공개키 |

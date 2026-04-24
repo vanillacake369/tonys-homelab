@@ -151,6 +151,70 @@ build *nodes:
     fi
 
 # -----------------------------------------------------------------------------
+# VM Image Provisioning
+# -----------------------------------------------------------------------------
+
+# VM QCOW2 이미지 빌드 (homelab-1에서 원격 빌드)
+build-images *vms:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(just host-names | head -1)
+    info=$(just resolve "$host")
+    ip=$(echo "$info" | jq -r '.ip')
+    user=$(echo "$info" | jq -r '.user')
+    remote_dir="/tmp/homelab-build"
+
+    # 빌드 대상 결정
+    if [ -z "{{ vms }}" ]; then
+        targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
+    else
+        targets="{{ vms }}"
+    fi
+
+    echo "=== Syncing repo to $host ==="
+    ssh "$user@$ip" "rm -rf $remote_dir"
+    rsync -az --filter=':- .gitignore' --exclude='.git' --exclude='result*' . "$user@$ip:$remote_dir/"
+
+    for vm in $targets; do
+        echo "=== Building image: $vm ==="
+        ssh "$user@$ip" "cd $remote_dir && nix build --impure '.#$vm' -o /tmp/image-$vm"
+        echo "=== Copying to base images ==="
+        ssh "$user@$ip" "sudo mkdir -p /var/lib/libvirt/images/base && sudo cp /tmp/image-$vm/nixos.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+        ssh "$user@$ip" "rm -f /tmp/image-$vm"
+        echo "  $vm: OK"
+    done
+
+    ssh "$user@$ip" "rm -rf $remote_dir"
+    echo "=== Done. Run 'just provision-vms' to apply. ==="
+
+# VM 프로비저닝 (base 이미지 → 실제 디스크 복사 + VM 재시작)
+provision-vms *vms:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(just host-names | head -1)
+
+    if [ -z "{{ vms }}" ]; then
+        targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]')
+    else
+        targets="{{ vms }}"
+    fi
+
+    for vm in $targets; do
+        echo "=== Provisioning: $vm ==="
+        # VM 정지
+        just node-ssh "$host" "sudo virsh destroy $vm 2>/dev/null || true"
+        # 기존 디스크 삭제 → systemd 서비스가 base 이미지에서 재생성
+        just node-ssh "$host" "sudo rm -f /var/lib/libvirt/images/$vm.qcow2"
+        # systemd 서비스 재실행 (base 이미지 복사 + VM 시작)
+        just node-ssh "$host" "sudo systemctl restart vm-$vm.service"
+        echo "  $vm: provisioned"
+    done
+
+    echo "=== All VMs provisioned. Waiting for SSH... ==="
+    just wait-vms
+    echo "=== Done. Run 'just deploy-vms' to apply latest config. ==="
+
+# -----------------------------------------------------------------------------
 # VM Access & Lifecycle
 # -----------------------------------------------------------------------------
 

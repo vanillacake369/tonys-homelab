@@ -9,6 +9,7 @@
 {
   lib,
   inputs,
+  targetSystem,
 }: rec {
   discoverNodes = import ./extract-filename.nix {inherit lib;};
 
@@ -16,7 +17,7 @@
 
   mkHost = name: {
     # 시스템 호스트명과 아키텍처 지정 (노드 파일에서 override 가능)
-    nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+    nixpkgs.hostPlatform = lib.mkDefault targetSystem;
     networking.hostName = lib.mkDefault name;
 
     # IaC Contract 에 따르는

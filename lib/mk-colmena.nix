@@ -9,6 +9,7 @@
 {
   lib,
   inputs,
+  targetSystem,
   mkHost,
   mkVMs,
 }: let
@@ -39,9 +40,9 @@ in
     // {
       meta = {
         # Colmena가 사용할 nixpkgs 인스턴스
-        # single-platform homelab: x86_64-linux 고정
+        # single-platform homelab
         nixpkgs = import inputs.nixpkgs {
-          system = "x86_64-linux";
+          system = targetSystem;
           config.allowUnfree = true;
         };
         # 모든 노드에 주입될 공통 인자

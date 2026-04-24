@@ -5,6 +5,7 @@
 {
   lib,
   inputs,
+  targetSystem,
 }: rec {
   discoverNodes = import ./extract-filename.nix {inherit lib;};
 
@@ -14,7 +15,7 @@
   # (Attribute name을 hostname으로 사용)
   mkVM = name: {
     # VM 노드 공통 설정 (노드 파일에서 override 가능)
-    nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+    nixpkgs.hostPlatform = lib.mkDefault targetSystem;
     networking.hostName = lib.mkDefault name;
 
     imports = [

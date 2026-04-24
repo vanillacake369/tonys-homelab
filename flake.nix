@@ -23,6 +23,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # VM 이미지 빌드 (nixos-generators)
+    nixos-generators = {
+      url = "github:nix-community/nixos-generators";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # Topology 다이어그램 생성툴
     nix-topology = {
       url = "github:oddlama/nix-topology";
@@ -35,28 +41,35 @@
     # nixpkgs의 lib 유틸리티 사용
     inherit (nixpkgs) lib;
 
+    # Homelab 타겟 아키텍처 (모든 노드 공통)
+    targetSystem = "x86_64-linux";
+
     # 지원 Architecture 목록
     supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
 
     # Architecture 별 패키지 생성 헬퍼
     forAllSystems = f: lib.genAttrs supportedSystems f;
-    packages = forAllSystems (sys: {
-      inherit (inputs.colmena.packages.${sys}) colmena;
-    });
+
+    # VM QCOW2 이미지 빌드 (타겟 아키텍처 전용)
+    vmImages = import ./lib/mk-images.nix {inherit lib inputs targetSystem;};
+
+    packages = forAllSystems (sys:
+      {inherit (inputs.colmena.packages.${sys}) colmena;}
+      // lib.optionalAttrs (sys == targetSystem) vmImages);
 
     # Host 구성 헬퍼함수인 mk-host
-    mkHost = import ./lib/mk-host.nix {inherit lib inputs;};
+    mkHost = import ./lib/mk-host.nix {inherit lib inputs targetSystem;};
 
     # VM 구성 헬퍼함수인 mk-vms
-    mkVMs = import ./lib/mk-vms.nix {inherit lib inputs;};
+    mkVMs = import ./lib/mk-vms.nix {inherit lib inputs targetSystem;};
     allNodes = mkHost.hostNodes // mkVMs.vmNodes;
 
     # Host 구성 헬퍼함수인 mk-colmena
-    hive = import ./lib/mk-colmena.nix {inherit lib inputs mkHost mkVMs;};
+    hive = import ./lib/mk-colmena.nix {inherit lib inputs targetSystem mkHost mkVMs;};
 
     nixosConfigurations = lib.mapAttrs (name: nodeConfig:
       lib.nixosSystem {
-        system = "x86_64-linux";
+        system = targetSystem;
         modules = [
           nodeConfig
           inputs.nix-topology.nixosModules.default
@@ -81,10 +94,10 @@
     #   - nix run --impure .#colmena -- apply --dry-run --on @{{ target }}
     colmenaHive = hive;
 
-    # nix-topology: nix build .#topology.x86_64-linux.config.output
-    topology.x86_64-linux = import inputs.nix-topology {
+    # nix-topology: nix build .#topology.${targetSystem}.config.output
+    topology.${targetSystem} = import inputs.nix-topology {
       pkgs = import nixpkgs {
-        system = "x86_64-linux";
+        system = targetSystem;
         overlays = [inputs.nix-topology.overlays.default];
       };
       modules = [

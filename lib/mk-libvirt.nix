@@ -58,10 +58,16 @@
         script = ''
           mkdir -p /var/lib/libvirt/images
 
-          # 디스크 이미지가 없으면 생성
+          # 디스크 이미지가 없으면: base 이미지 복사 또는 빈 디스크 생성
           if [ ! -f "/var/lib/libvirt/images/${name}.qcow2" ]; then
-            echo "Creating disk image for ${name} (${toString vm.diskSize}G)..."
-            qemu-img create -f qcow2 "/var/lib/libvirt/images/${name}.qcow2" "${toString vm.diskSize}G"
+            if [ -f "/var/lib/libvirt/images/base/${name}.qcow2" ]; then
+              echo "Provisioning ${name} from base image..."
+              cp "/var/lib/libvirt/images/base/${name}.qcow2" "/var/lib/libvirt/images/${name}.qcow2"
+              qemu-img resize "/var/lib/libvirt/images/${name}.qcow2" "${toString vm.diskSize}G"
+            else
+              echo "WARNING: No base image for ${name}, creating empty disk (${toString vm.diskSize}G)"
+              qemu-img create -f qcow2 "/var/lib/libvirt/images/${name}.qcow2" "${toString vm.diskSize}G"
+            fi
           fi
 
           # 도메인 정의 (idempotent: 존재하면 갱신, 없으면 생성)

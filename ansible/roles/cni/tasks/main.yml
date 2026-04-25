@@ -2,6 +2,21 @@
 # roles/cni: Cilium (eBPF-based, No Kube-proxy)
 # ------------------------------------------------------------
 
+- name: Check admin kubeconfig exists on leader
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+  when: inventory_hostname == groups['k8s_masters'][0]
+  tags: [ bootstrap ]
+
+- name: Abort CNI bootstrap when admin.conf is missing
+  fail:
+    msg: "/etc/kubernetes/admin.conf not found (kubeadm init likely failed). Run `journalctl -xeu kubelet` and retry bootstrap."
+  when:
+    - inventory_hostname == groups['k8s_masters'][0]
+    - not admin_conf.stat.exists
+  tags: [ bootstrap ]
+
 - name: Create local .kube directory for leader
   file:
     path: ~/.kube

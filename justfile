@@ -9,7 +9,12 @@ ssh-config := ```
   
   # 데이터 가져오기
   nix_data=$(nix eval --impure --json --expr "(import ./network/topology.nix)")
-  ts_data=$(tailscale status --json 2>/dev/null || echo '{"Peer":{}}')
+  ts_data_raw=$(tailscale status --json 2>/dev/null || true)
+  if echo "$ts_data_raw" | jq -e . >/dev/null 2>&1; then
+    ts_data="$ts_data_raw"
+  else
+    ts_data='{"Peer":[]}'
+  fi
 
   # 물리 호스트 및 VM 설정 생성
   echo "$nix_data" | jq -r --argjson ts "$ts_data" '
@@ -41,7 +46,7 @@ _ssh node +cmd:
 # Ansible wrapper
 [private]
 _ansible +args:
-    ANSIBLE_SSH_ARGS="-F {{ ssh-config }}" ansible-playbook -i ansible/inventory.py {{ args }}
+    ANSIBLE_LOCAL_TEMP="/tmp/ansible-local" TMPDIR="/tmp" ANSIBLE_SSH_ARGS="-F {{ ssh-config }}" ansible-playbook -i ansible/inventory.py {{ args }}
 
 # =============================================================================
 # Deploy

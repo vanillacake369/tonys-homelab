@@ -4,7 +4,7 @@
 # - VM 목록/IP: network/topology.nix vms 섹션 (CIDR 단일 관리)
 # - 네트워크 상수: network/topology.nix
 # - role: VM 이름 패턴에서 동적 도출 (k8s-master-* / k8s-worker-*)
-# - vlan: IP 프리픽스를 topology.nix의 VLAN gateway와 매칭하여 도출
+# - vlan: IP 프리픽스를 topology.nix의 VLAN network와 매칭하여 도출
 # ------------------------------------------------------------
 {deploy_target ? ""}: let
   network = import ../network/topology.nix;
@@ -17,11 +17,11 @@
     then "worker"
     else "unknown";
 
-  # IP 프리픽스(/24)를 topology.nix VLAN gateway와 대조해 VLAN 이름 도출
+  # IP 프리픽스(/24)를 topology.nix VLAN network와 대조해 VLAN 이름 도출
   # VLAN 구성이 바뀌어도 topology.nix 수정만으로 자동 반영됨
   vlanOf = ip: let
     prefix3 = addr: let
-      m = builtins.match "([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+" addr;
+      m = builtins.match "([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+(/[0-9]+)?" addr;
     in
       if m != null
       then builtins.head m
@@ -29,7 +29,7 @@
     ipPfx = prefix3 ip;
     matches =
       builtins.filter
-      (v: prefix3 network.vlans.${v}.gateway == ipPfx)
+      (v: prefix3 network.vlans.${v}.network == ipPfx)
       (builtins.attrNames network.vlans);
   in
     if matches != []
@@ -42,23 +42,8 @@
   workerHosts = builtins.filter (n: roleOf n == "worker") allVmNames;
   allNodes = masterHosts ++ workerHosts;
 
-  # Jump host: 물리 호스트 (homelab-1.nix: node.{ip, user})
-  jumpHost =
-    if deploy_target != ""
-    then deploy_target
-    else network.wan.host;
-  jumpUser = "limjihoon";
-
-  # Identity file logic
-  idFile = builtins.getEnv "SSH_KEY_FILE";
-  idArg =
-    if idFile != ""
-    then "-o IdentityFile=${idFile}"
-    else "";
-
-  proxySshArgs = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null ${idArg} -o ProxyJump=${jumpUser}@${jumpHost}";
-
   # [1] 데이터 변환기: topology.nix VM 네트워크 할당을 Ansible 호스트 변수로 매핑
+  # SSH 연결 설정은 justfile의 ANSIBLE_SSH_ARGS="-F .cache/ssh-config"에 위임
   # ------------------------------------------------------------
   toAnsibleHost = name: let
     vm = network.vms.${name};
@@ -66,7 +51,6 @@
     ansible_host = vm.ip;
     ansible_user = "root";
     ansible_python_interpreter = "/run/current-system/sw/bin/python3";
-    ansible_ssh_common_args = proxySshArgs;
     node_name = name;
     node_hostname = name;
     node_vlan = vlanOf vm.ip;
@@ -96,8 +80,6 @@ in {
       api_vip = network.kubernetes.api_vip;
       api_vip_prefix_length = network.vlans.services.prefixLength;
       cilium_helm_version = network.kubernetes.cilium_helm_version;
-      jump_host = jumpHost;
-      jump_user = jumpUser;
     };
   };
 

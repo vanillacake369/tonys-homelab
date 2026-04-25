@@ -21,6 +21,12 @@
 # [2] Leader Initialization (Only on the FIRST master)
 - name: Leader Setup Block
   block:
+    - name: Ensure /etc/kubernetes exists
+      file:
+        path: /etc/kubernetes
+        state: directory
+        mode: "0755"
+
     - name: Generate kubeadm init config
       template:
         src: kubeadm-config.yaml.j2

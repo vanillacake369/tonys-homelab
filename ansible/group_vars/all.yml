@@ -2,7 +2,7 @@
 # ------------------------------------------------------------
 # NOTE: pod_cidr and service_cidr are injected via dynamic inventory (network/topology.nix)
 
-k8s_version: "1.30.0"
+k8s_version: "1.35.3"
 
 # Networking (Cilium eBPF Optimization)
 cilium_mtu: 1440

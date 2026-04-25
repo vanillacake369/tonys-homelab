@@ -5,6 +5,7 @@
   stat:
     path: /etc/kubernetes/kubelet.conf
   register: local_joined
+  tags: [always]
 
 - name: "[Infra] Ensure API VIP is bound on leader"
   shell: |
@@ -35,14 +36,18 @@
         (not local_joined.stat.exists) or 
         (node_role == 'master' and inventory_hostname == groups['k8s_masters'][0] and global_api_health.status | default(0) != 200)
       }}
+  tags: [always]
 
 # 1) Cleanup: 강제 리셋 요청이 있을 때만 실행
-- include_tasks: cleanup.yml
+- import_tasks: cleanup.yml
   when: reset_cluster | default(false) | bool
+  tags: [cleanup]
 
 # 2) Bootstrap: 리셋되었거나, 조인이 안 되었거나, API가 죽었을 때만 실행
-- include_tasks: bootstrap.yml
+- import_tasks: bootstrap.yml
   when: needs_bootstrap | bool
+  tags: [bootstrap]
 
 # 3) Verify: 상태와 관계없이 항상 실행하여 최종 건강 상태 보고
-- include_tasks: verify.yml
+- import_tasks: verify.yml
+  tags: [verify]

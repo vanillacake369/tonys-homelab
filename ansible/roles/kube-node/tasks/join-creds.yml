@@ -1,0 +1,53 @@
+# roles/kube-node/tasks/join-creds.yml
+# ------------------------------------------------------------
+# Ensure join credentials are available even when the leader does not need bootstrap.
+#
+# This prevents failures on secondary masters/workers where `global_worker_join_cmd`
+# would otherwise be undefined when running with `--tags bootstrap`.
+
+- name: "[Leader] Check admin kubeconfig exists"
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: leader_admin_conf
+  delegate_to: "{{ groups['k8s_masters'][0] }}"
+  run_once: true
+  tags: [bootstrap]
+
+- name: "[Leader] Check if any node needs bootstrap"
+  set_fact:
+    any_node_needs_bootstrap: "{{ groups['all'] | map('extract', hostvars, 'needs_bootstrap') | map('bool') | select | list | length > 0 }}"
+  run_once: true
+  tags: [bootstrap]
+
+- name: "[Leader] Generate join credentials (token + cert key)"
+  shell: |
+    set -euo pipefail
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    JOIN_CMD=$(kubeadm token create --print-join-command)
+    CERT_KEY=$(kubeadm init phase upload-certs --upload-certs | tail -n 1)
+    echo "$JOIN_CMD|$CERT_KEY"
+  register: join_facts_raw
+  when:
+    - leader_admin_conf.stat.exists
+    - any_node_needs_bootstrap | bool
+    - global_worker_join_cmd is not defined
+  delegate_to: "{{ groups['k8s_masters'][0] }}"
+  run_once: true
+  no_log: true
+  tags: [bootstrap]
+
+- name: "[Leader] Propagate join credentials globally"
+  set_fact:
+    global_worker_join_cmd: "{{ join_facts_raw.stdout.split('|')[0] }}"
+    global_cert_key: "{{ join_facts_raw.stdout.split('|')[1] }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups['all'] }}"
+  when:
+    - leader_admin_conf.stat.exists
+    - join_facts_raw is defined
+    - join_facts_raw.stdout is defined
+    - (join_facts_raw.stdout | length) > 0
+  run_once: true
+  no_log: true
+  tags: [bootstrap]

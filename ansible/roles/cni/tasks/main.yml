@@ -69,6 +69,7 @@
       k8sServicePort: 6443
       nativeRoutingMTU: "{{ cilium_mtu }}"
       routingMode: "native"
+      ipv4NativeRoutingCIDR: "{{ pod_cidr }}"
       autoDirectNodeRoutes: "true"
       bpf:
         masquerade: true

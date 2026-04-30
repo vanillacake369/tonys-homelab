@@ -9,6 +9,7 @@
     enabled: yes
   tags: [bootstrap, verify]
 
+# bootstrap 태그에서는 실행하지 않음 — CNI 설치 전에는 노드가 Ready 될 수 없음
 - name: Verify Cluster Health and Readiness
   block:
     - name: Wait for API healthz on VIP
@@ -23,7 +24,7 @@
       shell: |
         kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes --no-headers | grep -v "NotReady" | grep "Ready" | wc -l
       register: node_count
-      until: node_count.stdout | trim | int == groups['all'] | length
+      until: node_count.stdout | trim | int == (groups['k8s_masters'] | length + groups['k8s_workers'] | length)
       retries: 60
       delay: 10
       changed_when: false
@@ -37,9 +38,9 @@
       debug:
         msg:
             - "🎉 Cluster Bootstrap Successful!"
-            - "Nodes Ready: {{ node_count.stdout | trim }} / {{ groups['all'] | length }}"
+            - "Nodes Ready: {{ node_count.stdout | trim }} / {{ groups['k8s_masters'] | length + groups['k8s_workers'] | length }}"
             - "API Health Status: {{ final_health.status }}"
             - "--- Kube-System Pods ---"
             - "{{ pod_status.stdout_lines }}"
   when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
-  tags: [bootstrap, verify]
+  tags: [verify]

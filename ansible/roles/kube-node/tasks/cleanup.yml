@@ -23,6 +23,20 @@
         - /var/lib/etcd
         - /var/lib/kubelet
         - /etc/cni/net.d
+        # kubeadm can leave systemd drop-ins on some distros; on NixOS this can
+        # unintentionally override the Nix-managed kubelet unit across resets.
+        - /etc/systemd/system/kubelet.service.d
+      failed_when: false
+
+    - name: Reload systemd after kubelet drop-in cleanup
+      systemd:
+        daemon_reload: true
+      failed_when: false
+
+    - name: Ensure kube-proxy manifest is removed
+      file:
+        path: /etc/kubernetes/manifests/kube-proxy.yaml
+        state: absent
       failed_when: false
   when: reset_cluster | default(false) | bool
   tags: [cleanup, never]

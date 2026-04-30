@@ -1,0 +1,69 @@
+# kube-vip Static Pod Manifest (ARP Mode)
+# - v1.1.0: crash-loop 후 자동 복구 — kubeadm init 전 배포 가능
+# - K8s 1.29+ super-admin.conf 마운트 필수 (admin.conf 권한 부족)
+# - hostAliases: kubernetes → 127.0.0.1 (VIP 미바인딩 시 localhost fallback)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+  labels:
+    component: kube-vip
+    tier: control-plane
+spec:
+  containers:
+    - name: kube-vip
+      image: "ghcr.io/kube-vip/kube-vip:v{{ kube_vip_version }}"
+      imagePullPolicy: IfNotPresent
+      args:
+        - manager
+      env:
+        - name: vip_arp
+          value: "true"
+        - name: port
+          value: "6443"
+        - name: vip_interface
+          value: "{{ kube_vip_interface }}"
+        - name: vip_cidr
+          value: "32"
+        - name: cp_enable
+          value: "true"
+        - name: cp_namespace
+          value: kube-system
+        - name: vip_leaderelection
+          value: "true"
+        - name: vip_leasename
+          value: plndr-cp-lock
+        - name: vip_leaseduration
+          value: "15"
+        - name: vip_renewdeadline
+          value: "10"
+        - name: vip_retryperiod
+          value: "2"
+        - name: address
+          value: "{{ api_vip }}"
+        - name: vip_nodename
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+      volumeMounts:
+        - mountPath: /.kube/config
+          name: kubeconfig
+          readOnly: true
+  hostAliases:
+    - hostnames:
+        - kubernetes
+      ip: 127.0.0.1
+  hostNetwork: true
+  hostPID: false
+  volumes:
+    - name: kubeconfig
+      hostPath:
+        path: "/etc/kubernetes/kube-vip.conf"

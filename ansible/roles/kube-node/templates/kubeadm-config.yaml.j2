@@ -1,11 +1,11 @@
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 nodeRegistration:
   name: "{{ node_name }}"
   criSocket: "unix:///run/containerd/containerd.sock"
   imagePullPolicy: IfNotPresent
 ---
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: "v{{ k8s_version }}"
 controlPlaneEndpoint: "{{ api_vip }}:6443"
@@ -15,10 +15,23 @@ networking:
 apiServer:
   certSANs:
     - "{{ api_vip }}"
+    - "127.0.0.1"
     - "{{ inventory_hostname }}"
+{% for host in groups['k8s_masters'] %}
+    - "{{ hostvars[host]['ansible_host'] | default(host) }}"
+{% endfor %}
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
 clusterDomain: cluster.local
 staticPodPath: /etc/kubernetes/manifests
+# NixOS의 CNI plugins는 /nix/store에 있지만 Cilium은 /opt/cni/bin에 설치.
+cniPath: /opt/cni/bin
+# NixOS systemd-resolved가 /etc/resolv.conf → 127.0.0.53 stub을 제공하므로
+# pod 내부에서 DNS가 깨짐. 실제 upstream nameserver가 포함된 파일을 사용.
+resolvConf: /run/systemd/resolve/resolv.conf
+# NixOS + hardened apiserver(Node authorizer) 환경에서 kubelet의 ConfigMap/Secret
+# LIST/WATCH가 "no relationship found between node ... and this object"로 막히면서
+# projected ServiceAccount 볼륨(kube-api-access-*)이 비어(token/ca.crt 없음)지는 이슈를 회피.
+configMapAndSecretChangeDetectionStrategy: Get

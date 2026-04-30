@@ -19,7 +19,5 @@
       HostName 10.0.20.21
     Host k8s-worker-2
       HostName 10.0.20.22
-    Host k8s-worker-3
-      HostName 10.0.20.23
   '';
 }

@@ -62,51 +62,42 @@
       ip = "10.0.20.10";
       mac = "02:00:00:00:20:10";
       tapId = "vm-k8s-m1";
-      vcpu = 4;
-      mem = 4096;
-      diskSize = 40;
+      vcpu = 2;
+      mem = 2048;
+      diskSize = 20;
     };
     k8s-master-2 = {
       host = "homelab-1";
       ip = "10.0.20.11";
       mac = "02:00:00:00:20:11";
       tapId = "vm-k8s-m2";
-      vcpu = 4;
-      mem = 4096;
-      diskSize = 40;
+      vcpu = 2;
+      mem = 2048;
+      diskSize = 20;
     };
     k8s-master-3 = {
       host = "homelab-1";
       ip = "10.0.20.12";
       mac = "02:00:00:00:20:12";
       tapId = "vm-k8s-m3";
-      vcpu = 4;
-      mem = 4096;
-      diskSize = 40;
+      vcpu = 2;
+      mem = 2048;
+      diskSize = 20;
     };
     k8s-worker-1 = {
       host = "homelab-1";
       ip = "10.0.20.21";
       mac = "02:00:00:00:20:21";
       tapId = "vm-k8s-w1";
-      vcpu = 8;
-      mem = 16384;
-      diskSize = 60;
+      vcpu = 6;
+      mem = 8192;
+      diskSize = 40;
     };
     k8s-worker-2 = {
       host = "homelab-1";
       ip = "10.0.20.22";
       mac = "02:00:00:00:20:22";
       tapId = "vm-k8s-w2";
-      vcpu = 4;
-      mem = 8192;
-      diskSize = 40;
-    };
-    k8s-worker-3 = {
-      host = "homelab-1";
-      ip = "10.0.20.23";
-      mac = "02:00:00:00:20:23";
-      tapId = "vm-k8s-w3";
       vcpu = 4;
       mem = 8192;
       diskSize = 40;

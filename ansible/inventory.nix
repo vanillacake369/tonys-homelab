@@ -36,7 +36,7 @@
     then builtins.head matches
     else "unknown";
 
-  # VM 이름 목록: topology.nix vms 키 → 사전순 정렬 (master-1 < master-2 < ... < worker-3)
+  # VM 이름 목록: topology.nix vms 키 → 사전순 정렬
   allVmNames = builtins.attrNames network.vms;
   masterHosts = builtins.filter (n: roleOf n == "master") allVmNames;
   workerHosts = builtins.filter (n: roleOf n == "worker") allVmNames;

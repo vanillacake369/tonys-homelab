@@ -78,7 +78,6 @@ in {
       pod_cidr = network.kubernetes.pod_cidr;
       service_cidr = network.kubernetes.service_cidr;
       api_vip = network.kubernetes.api_vip;
-      api_vip_prefix_length = network.vlans.services.prefixLength;
       cilium_helm_version = network.kubernetes.cilium_helm_version;
     };
   };

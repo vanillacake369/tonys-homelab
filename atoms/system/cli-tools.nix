@@ -2,6 +2,9 @@
 {pkgs, ...}: {
   environment.systemPackages = with pkgs; [
     busybox
+    vim
+    neovim
+    iptables
     wget
     curl
     rsync

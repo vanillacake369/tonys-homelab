@@ -37,7 +37,7 @@
     pod_cidr = "10.244.0.0/16";
     service_cidr = "10.96.0.0/12";
     api_vip = "10.0.20.100";
-    cilium_helm_version = "1.15.5";
+    cilium_helm_version = "1.19.1";
   };
 
   # 물리 호스트 메타데이터

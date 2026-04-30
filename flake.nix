@@ -72,7 +72,7 @@
       {inherit (inputs.colmena.packages.${sys}) colmena;}
       // lib.optionalAttrs (sys == targetSystem) vmImages);
   in {
-    inherit packages nixosConfigurations;
+    inherit packages nixosConfigurations targetSystem;
 
     # 헬퍼함수를 통해
     # Host & VM 에 대한

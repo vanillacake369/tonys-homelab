@@ -3,6 +3,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 topology := "./network/topology.nix"
 
 # [최적화] Topology 상수와 Tailscale 상태를 결합하여 최적의 경로 선택
+
 ssh-config := ```
   mkdir -p .cache
   config_file=".cache/ssh-config"
@@ -38,6 +39,7 @@ _colmena +args:
     SSH_CONFIG_FILE={{ ssh-config }} nix run --impure .#colmena -- {{ args }}
 
 # SSH to any node (ssh-config이 host/VM 라우팅 자동 처리)
+
 # -n: 표준 입력을 차단하여 while read 루프 내에서 사용 시 데이터 소모 방지
 [private]
 _ssh node +cmd:
@@ -81,18 +83,19 @@ build-images *vms:
     set -euo pipefail
     remote_dir="/tmp/homelab-build"
     data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
-    
+    target_system=$(nix eval --raw --impure '.#targetSystem')
+
     targets="{{ vms }}"
     if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
 
     for vm in $targets; do
         host=$(echo "$data" | jq -r ".\"$vm\".host")
-        echo "=== Building $vm on $host ==="
-        just _ssh "$host" "rm -rf $remote_dir"
+        echo "=== Building $vm on $host (Target: $target_system) ==="
+        ssh -n -F {{ ssh-config }} "$host" "rm -rf $remote_dir && mkdir -p $remote_dir"
         rsync -az --filter=':- .gitignore' --exclude='.git' -e "ssh -F {{ ssh-config }}" . "$host:$remote_dir/"
-        just _ssh "$host" "cd $remote_dir && nix build --impure '.#$vm' -o /tmp/image-$vm"
-        just _ssh "$host" "sudo mkdir -p /var/lib/libvirt/images/base && sudo cp /tmp/image-$vm/*.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
-        just _ssh "$host" "rm -rf /tmp/image-$vm $remote_dir"
+        ssh -n -F {{ ssh-config }} "$host" "cd $remote_dir && nix build --impure '.#packages.$target_system.$vm' --system $target_system -o /tmp/image-$vm"
+        ssh -n -F {{ ssh-config }} "$host" "sudo mkdir -p /var/lib/libvirt/images/base && sudo cp /tmp/image-$vm/*.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+        ssh -n -F {{ ssh-config }} "$host" "rm -rf /tmp/image-$vm $remote_dir"
         echo "  $vm: OK"
     done
 
@@ -102,7 +105,7 @@ provision-vms *vms:
     set -euo pipefail
     data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
     ssh_timeout_s="${PROVISION_SSH_TIMEOUT:-300}"
-    
+
     targets="{{ vms }}"
     if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
 
@@ -110,14 +113,14 @@ provision-vms *vms:
         host=$(echo "$data" | jq -r ".\"$vm\".host")
         ip=$(echo "$data" | jq -r ".\"$vm\".ip")
         echo "=== Provisioning $vm on $host ($ip) ==="
-        just _ssh "$host" "sudo virsh destroy $vm 2>/dev/null || true; \
+        ssh -n -F {{ ssh-config }} "$host" "sudo virsh destroy $vm 2>/dev/null || true; \
                            sudo rm -f /var/lib/libvirt/images/$vm.qcow2; \
                            sudo systemctl restart vm-$vm.service"
-        
+
         printf "  Waiting for SSH..."
         start_ts=$(date +%s)
         while true; do
-            if just _ssh "$host" "nc -zvw1 $ip 22" &>/dev/null; then echo " OK"; break; fi
+            if ssh -n -F {{ ssh-config }} "$host" "nc -zvw1 $ip 22" &>/dev/null; then echo " OK"; break; fi
             if [ $(( $(date +%s) - start_ts )) -ge "$ssh_timeout_s" ]; then echo " TIMEOUT"; exit 1; fi
             sleep 2; printf "."
         done
@@ -131,7 +134,7 @@ provision-vms *vms:
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
 
-# VM lifecycle control via systemd (start|stop|restart)
+# VM lifecycle control via systemd (start|stop|restart|remove)
 vm action name="all":
     #!/usr/bin/env bash
     data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
@@ -142,6 +145,12 @@ vm action name="all":
         host=$(echo "$data" | jq -r ".\"$vm\".host")
         case "{{ action }}" in
             start|stop|restart) cmd="sudo systemctl {{ action }} vm-$vm.service" ;;
+            remove) 
+                cmd="sudo systemctl stop vm-$vm.service 2>/dev/null || true; \
+                     sudo virsh destroy $vm 2>/dev/null || true; \
+                     sudo virsh undefine $vm --remove-all-storage 2>/dev/null || true; \
+                     sudo rm -f /var/lib/libvirt/images/$vm.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+                ;;
             *) cmd="sudo virsh {{ action }} $vm" ;;
         esac
         echo "$vm: {{ action }}ing on $host..."

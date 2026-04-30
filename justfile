@@ -33,7 +33,6 @@ ssh-config := ```
 # Private: 인프라 헬퍼
 # =============================================================================
 
-# Colmena wrapper (SSH_CONFIG_FILE로 동적 SSH config 주입)
 [private]
 _colmena +args:
     SSH_CONFIG_FILE={{ ssh-config }} nix run --impure .#colmena -- {{ args }}
@@ -54,16 +53,13 @@ _ansible +args:
 # Deploy
 # =============================================================================
 
-# Deploy all (host first → VMs)
 deploy-all: deploy-host deploy-vms
 
-# Deploy physical host(s)
 deploy-host:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
     just _colmena apply --on "$targets" --verbose
 
-# Deploy all VMs
 deploy-vms:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
@@ -130,7 +126,6 @@ provision-vms *vms:
 # Access & Lifecycle
 # =============================================================================
 
-# SSH into any node
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
 
@@ -231,11 +226,9 @@ k8s-verify:
 # Maintenance
 # =============================================================================
 
-# Validate flake
 check:
     nix flake check --impure --all-systems
 
-# Update flake inputs
 update:
     nix flake update
 

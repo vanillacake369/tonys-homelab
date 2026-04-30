@@ -1,0 +1,19 @@
+# roles/kube-node/tasks/preflight.yml
+# ------------------------------------------------------------
+# 모든 노드 공통: 컨테이너 런타임 준비 + K8s 이미지 사전 다운로드
+
+- name: "[Pre-flight] Ensure containerd is running"
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+
+- name: "[Pre-flight] Wait for CRI connectivity"
+  shell: crictl version
+  register: cri_res
+  until: cri_res is succeeded
+  retries: 10
+  delay: 3
+
+- name: "[Pre-flight] Pre-pull Kubernetes images"
+  shell: kubeadm config images pull --kubernetes-version "v{{ k8s_version }}" --cri-socket unix:///run/containerd/containerd.sock

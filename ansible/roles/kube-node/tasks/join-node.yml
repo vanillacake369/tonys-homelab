@@ -1,0 +1,85 @@
+# roles/kube-node/tasks/join-node.yml
+# ------------------------------------------------------------
+# 리더를 제외한 나머지 노드: kubeadm join + (마스터인 경우) kube-vip 배포
+
+- name: "[Join] Secondary Nodes"
+  block:
+    - name: Assert join credentials are available
+      assert:
+        that:
+          - global_worker_join_cmd is defined
+          - (global_worker_join_cmd | length) > 0
+          - global_cert_key is defined
+          - (global_cert_key | length) > 0
+        fail_msg: "Join credentials missing. Ensure leader has a running control-plane."
+
+    - name: Prepare kubelet for join
+      shell: |
+        systemctl stop kubelet || true
+        mkdir -p /var/lib/kubelet
+        rm -f /var/lib/kubelet/kubeadm-flags.env
+        rm -rf /etc/systemd/system/kubelet.service.d
+        systemctl daemon-reload || true
+
+    - name: Reset node before join (idempotent)
+      shell: kubeadm reset -f || true
+
+    - name: Join as secondary control plane
+      shell: |
+        kubeadm reset -f > /dev/null 2>&1 || true
+        timeout 10m {{ global_worker_join_cmd }} \
+        --control-plane \
+        --certificate-key {{ global_cert_key }} \
+        --ignore-preflight-errors=SystemVerification \
+        --v=5
+      register: master_join_res
+      until: master_join_res is succeeded
+      retries: 5
+      delay: 20
+      throttle: 1
+      ignore_errors: true
+      no_log: true
+      when: node_role == 'master'
+
+    - name: Fail with join diagnostics (secondary control plane)
+      fail:
+        msg: |
+          kubeadm join (control-plane) failed on {{ inventory_hostname }}.
+          rc={{ master_join_res.rc | default('unknown') }}
+          stdout:
+          {{ master_join_res.stdout | default('') }}
+          stderr:
+          {{ master_join_res.stderr | default('') }}
+      when:
+        - node_role == 'master'
+        - master_join_res is defined
+        - master_join_res is not succeeded
+
+    - name: Create kube-vip kubeconfig (localhost, not VIP)
+      shell: |
+        SRC=/etc/kubernetes/super-admin.conf
+        [ -f "$SRC" ] || SRC=/etc/kubernetes/admin.conf
+        cp "$SRC" /etc/kubernetes/kube-vip.conf
+        sed -i 's|https://{{ api_vip }}:6443|https://127.0.0.1:6443|' /etc/kubernetes/kube-vip.conf
+        chmod 600 /etc/kubernetes/kube-vip.conf
+      when:
+        - node_role == 'master'
+
+    - name: Deploy kube-vip manifest on joined master
+      template:
+        src: kube-vip.yaml.j2
+        dest: /etc/kubernetes/manifests/kube-vip.yaml
+        mode: "0644"
+      when:
+        - node_role == 'master'
+        - kube_vip_interface is defined
+
+    - name: Join as worker node
+      shell: |
+        kubeadm reset -f > /dev/null 2>&1 || true
+        timeout 10m {{ global_worker_join_cmd }} \
+        --ignore-preflight-errors=SystemVerification \
+        --v=5
+      no_log: true
+      when: node_role == 'worker'
+  when: inventory_hostname != groups['k8s_masters'][0]

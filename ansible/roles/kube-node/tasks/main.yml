@@ -1,53 +1,128 @@
-# roles/kube-node: Josh Rosso K8s Lifecycle (Optimized Orchestrator)
+# roles/kube-node: K8s Lifecycle Orchestrator
+# ------------------------------------------------------------
+# Phase 0: State Detection
+# Phase 1: Cleanup       (reset 요청 시)
+# Phase 2: Pre-flight    (bootstrap 필요 노드)
+# Phase 3: Leader Init   (첫 번째 마스터 — kube-vip + kubeadm init)
+# Phase 4: Join Creds    (리더가 이미 가동 중이면 토큰 재발급)
+# Phase 5: Node Join     (나머지 노드 — kubeadm join)
+# Phase 6: kube-vip Sync (이미 조인된 마스터의 manifest 최신화)
+# Phase 7: Verify
 # ------------------------------------------------------------
 
-- name: "[Check] Local Node Join Status"
+# === Phase 0: State Detection ===
+
+- name: "[State] Check local node join status"
   stat:
     path: /etc/kubernetes/kubelet.conf
   register: local_joined
   tags: [always]
 
-- name: "[Infra] Ensure API VIP is bound on leader"
-  shell: |
-    # Find the interface that has the cluster IP (10.0.20.x)
-    IFACE=$(ip -4 addr show | grep '10.0.20.' | awk '{print $NF}' | head -n1)
-    if [ -z "$IFACE" ]; then exit 1; fi
-    
-    # Bind VIP if not already present
-    ip addr show dev $IFACE | grep -q "{{ api_vip }}/" || \
-    ip addr add {{ api_vip }}/{{ api_vip_prefix_length }} dev $IFACE
-  when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
-  tags: [bootstrap, always]
+- name: "[State] Detect network interface for kube-vip"
+  shell: ip -o -4 addr show | grep '10\.0\.20\.' | awk '{print $2}' | head -n1
+  register: detected_iface
+  changed_when: false
+  when: node_role == 'master'
+  tags: [always]
 
-- name: "[Check] Cluster API Health"
+- name: "[State] Set kube-vip interface fact"
+  set_fact:
+    kube_vip_interface: "{{ detected_iface.stdout | trim }}"
+  when: node_role == 'master' and detected_iface.stdout | default('') | trim | length > 0
+  tags: [always]
+
+- name: "[State] Check cluster API health"
   uri:
     url: "https://{{ api_vip }}:6443/healthz"
     validate_certs: no
   register: global_api_health
   failed_when: false
   when: node_role == 'master' and inventory_hostname == groups['k8s_masters'][0]
-  tags: [bootstrap, always]
+  tags: [always]
 
-- name: "Set Bootstrap Decision Fact"
+- name: "[State] Set bootstrap decision fact"
   set_fact:
     needs_bootstrap: >-
-      {{ 
-        (reset_cluster | default(false) | bool) or 
-        (not local_joined.stat.exists) or 
+      {{
+        (reset_cluster | default(false) | bool) or
+        (not local_joined.stat.exists) or
         (node_role == 'master' and inventory_hostname == groups['k8s_masters'][0] and global_api_health.status | default(0) != 200)
       }}
   tags: [always]
 
-# 1) Cleanup: 강제 리셋 요청이 있을 때만 실행
+# === Phase 1: Cleanup (강제 리셋 시) ===
+
 - import_tasks: cleanup.yml
   when: reset_cluster | default(false) | bool
   tags: [cleanup]
 
-# 2) Bootstrap: 리셋되었거나, 조인이 안 되었거나, API가 죽었을 때만 실행
-- import_tasks: bootstrap.yml
+# === Phase 2: Pre-flight (bootstrap 필요 노드) ===
+
+- import_tasks: preflight.yml
   when: needs_bootstrap | bool
   tags: [bootstrap]
 
-# 3) Verify: 상태와 관계없이 항상 실행하여 최종 건강 상태 보고
+# === Phase 3: Leader Init (첫 번째 마스터 — kubeadm init) ===
+
+- import_tasks: init-leader.yml
+  when: needs_bootstrap | bool
+  tags: [bootstrap]
+
+# === Phase 4: Join Creds (리더가 이미 가동 중이면 토큰 전파) ===
+
+- import_tasks: join-creds.yml
+  tags: [bootstrap]
+
+# === Phase 5: Node Join (나머지 노드 — kubeadm join) ===
+
+- import_tasks: join-node.yml
+  when: needs_bootstrap | bool
+  tags: [bootstrap]
+
+# === Phase 6: kube-vip Sync (이미 조인된 마스터 manifest 최신화) ===
+
+
+- name: "[kube-vip] Ensure /etc/kubernetes/manifests directory exists"
+  ansible.builtin.file:
+    path: /etc/kubernetes/manifests
+    state: directory
+    mode: '0755'
+  when:
+    - node_role == 'master'
+    - local_joined.stat.exists
+    - not (reset_cluster | default(false) | bool)
+  tags: [always]
+
+- name: "[kube-vip] Ensure kube-vip.conf exists (localhost kubeconfig)"
+  shell: |
+    if [ ! -f /etc/kubernetes/kube-vip.conf ]; then
+      SRC=/etc/kubernetes/super-admin.conf
+      [ -f "$SRC" ] || SRC=/etc/kubernetes/admin.conf
+      [ -f "$SRC" ] || exit 0
+      cp "$SRC" /etc/kubernetes/kube-vip.conf
+      sed -i 's|https://{{ api_vip }}:6443|https://127.0.0.1:6443|' /etc/kubernetes/kube-vip.conf
+      chmod 600 /etc/kubernetes/kube-vip.conf
+    fi
+  when:
+    - node_role == 'master'
+    - local_joined.stat.exists
+    - not (reset_cluster | default(false) | bool)
+  tags: [always]
+
+- name: "[kube-vip] Ensure manifest is current on joined masters"
+  template:
+    src: kube-vip.yaml.j2
+    dest: /etc/kubernetes/manifests/kube-vip.yaml
+    mode: "0644"
+  when:
+    - node_role == 'master'
+    - kube_vip_interface is defined
+    - local_joined.stat.exists
+    - not (reset_cluster | default(false) | bool)
+  tags: [always]
+
+
+# === Phase 7: Verify ===
+
 - import_tasks: verify.yml
   tags: [verify]

@@ -42,7 +42,7 @@ _colmena +args:
 # -n: 표준 입력을 차단하여 while read 루프 내에서 사용 시 데이터 소모 방지
 [private]
 _ssh node +cmd:
-    ssh -n -F {{ ssh-config }} {{ node }} {{ cmd }}
+    ssh -n -F {{ ssh-config }} {{ node }} '{{ cmd }}'
 
 # Ansible wrapper
 [private]
@@ -53,13 +53,16 @@ _ansible +args:
 # Deploy
 # =============================================================================
 
+# Deploy all (hosts + VMs)
 deploy-all: deploy-host deploy-vms
 
+# Deploy physical hosts only
 deploy-host:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
     just _colmena apply --on "$targets" --verbose
 
+# Deploy VMs only
 deploy-vms:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
@@ -126,6 +129,7 @@ provision-vms *vms:
 # Access & Lifecycle
 # =============================================================================
 
+# Connect to node managed by colmena using generated SSH config
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
 
@@ -226,9 +230,11 @@ k8s-verify:
 # Maintenance
 # =============================================================================
 
+# Run flake check
 check:
     nix flake check --impure --all-systems
 
+# Update flake inputs
 update:
     nix flake update
 

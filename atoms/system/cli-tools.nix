@@ -1,6 +1,8 @@
 # Atoms: Essential CLI Tools
 {pkgs, ...}: {
   environment.systemPackages = with pkgs; [
+    sysstat
+    valkey
     busybox
     vim
     neovim

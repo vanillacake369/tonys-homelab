@@ -11,10 +11,6 @@
     # Static Host Definitions
     Host k8s-master-1
       HostName 10.0.20.10
-    Host k8s-master-2
-      HostName 10.0.20.11
-    Host k8s-master-3
-      HostName 10.0.20.12
     Host k8s-worker-1
       HostName 10.0.20.21
     Host k8s-worker-2

@@ -63,25 +63,7 @@
       mac = "02:00:00:00:20:10";
       tapId = "vm-k8s-m1";
       vcpu = 2;
-      mem = 2048;
-      diskSize = 20;
-    };
-    k8s-master-2 = {
-      host = "homelab-1";
-      ip = "10.0.20.11";
-      mac = "02:00:00:00:20:11";
-      tapId = "vm-k8s-m2";
-      vcpu = 2;
-      mem = 2048;
-      diskSize = 20;
-    };
-    k8s-master-3 = {
-      host = "homelab-1";
-      ip = "10.0.20.12";
-      mac = "02:00:00:00:20:12";
-      tapId = "vm-k8s-m3";
-      vcpu = 2;
-      mem = 2048;
+      mem = 4096;
       diskSize = 20;
     };
     k8s-worker-1 = {

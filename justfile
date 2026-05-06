@@ -7,7 +7,7 @@ topology := "./network/topology.nix"
 ssh-config := ```
   mkdir -p .cache
   config_file=".cache/ssh-config"
-  
+
   # 데이터 가져오기
   nix_data=$(nix eval --impure --json --expr "(import ./network/topology.nix)")
   ts_data_raw=$(tailscale status --json 2>/dev/null || true)
@@ -22,7 +22,7 @@ ssh-config := ```
     (.hosts | to_entries[] as $host |
       (($ts.Peer[]? | select(.HostName == $host.key or (.DNSName | startswith($host.key+"."))) | .TailscaleIPs[0]) // $host.value.ip) as $ip |
       "Host \($host.key)\n    HostName \($ip)\n    User \($host.value.user)\n    StrictHostKeyChecking no\n"),
-    (.vms | to_entries[] as $vm | 
+    (.vms | to_entries[] as $vm |
       "Host \($vm.key) \($vm.value.ip)\n    HostName \($vm.value.ip)\n    User root\n    ProxyJump \($vm.value.host)\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n")
   ' > "$config_file"
 
@@ -54,7 +54,7 @@ _ansible +args:
 # =============================================================================
 
 # Deploy all (hosts + VMs)
-deploy-all: deploy-host deploy-vms
+deploy: deploy-host deploy-vm
 
 # Deploy physical hosts only
 deploy-host:
@@ -63,21 +63,21 @@ deploy-host:
     just _colmena apply --on "$targets" --verbose
 
 # Deploy VMs only
-deploy-vms:
+deploy-vm:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
     just _colmena apply --on "$targets" --verbose
 
-# Deploy specific node(s): just deploy k8s-master-1
-deploy +nodes:
+# Deploy specific node(s): just deploy-node k8s-master-1
+deploy-node +nodes:
     just _colmena apply --on "$(echo "{{ nodes }}" | tr ' ' ',')" --verbose
 
 # =============================================================================
-# VM Image Provisioning
+# VM Lifecycle
 # =============================================================================
 
 # Build VM QCOW2 images on their respective hosts
-build-images *vms:
+vm-build *vms:
     #!/usr/bin/env bash
     set -euo pipefail
     remote_dir="/tmp/homelab-build"
@@ -99,7 +99,7 @@ build-images *vms:
     done
 
 # Copy base image to local disk and restart VM service
-provision-vms *vms:
+vm-provision *vms:
     #!/usr/bin/env bash
     set -euo pipefail
     data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
@@ -125,41 +125,108 @@ provision-vms *vms:
         done
     done
 
+# Start VM(s)
+vm-start *names:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
+    targets="{{ names }}"
+    if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
+    for vm in $targets; do
+        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        echo "$vm: starting on $host..."
+        just _ssh "$host" "sudo systemctl start vm-$vm.service" &
+    done
+    wait
+
+# Stop VM(s)
+vm-stop *names:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
+    targets="{{ names }}"
+    if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
+    for vm in $targets; do
+        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        echo "$vm: stopping on $host..."
+        just _ssh "$host" "sudo systemctl stop vm-$vm.service" &
+    done
+    wait
+
+# Restart VM(s)
+vm-restart *names:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
+    targets="{{ names }}"
+    if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
+    for vm in $targets; do
+        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        echo "$vm: restarting on $host..."
+        just _ssh "$host" "sudo systemctl restart vm-$vm.service" &
+    done
+    wait
+
+# Destroy and undefine VM(s) (destructive)
+vm-destroy +names:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
+    targets="{{ names }}"
+    if [ "$targets" = "all" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
+
+    echo "Will destroy: $targets"
+    read -p "Confirm? [y/N] " confirm
+    [[ "$confirm" =~ ^[yY]$ ]] || exit 0
+
+    for vm in $targets; do
+        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        echo "$vm: destroying on $host..."
+        just _ssh "$host" "sudo systemctl stop vm-$vm.service 2>/dev/null || true; \
+            sudo virsh destroy $vm 2>/dev/null || true; \
+            sudo virsh undefine $vm --remove-all-storage 2>/dev/null || true; \
+            sudo rm -f /var/lib/libvirt/images/$vm.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+    done
+
+# Remove stale VMs not in topology
+vm-cleanup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    expected=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r '.[]' | sort)
+
+    for host in $(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r '.[]'); do
+        actual=$(just _ssh "$host" "sudo virsh list --all --name" | grep -v '^$' | sort)
+        stale=$(comm -23 <(echo "$actual") <(echo "$expected"))
+
+        if [ -z "$stale" ]; then
+            echo "$host: clean"
+            continue
+        fi
+
+        echo "$host: stale VMs found → $stale"
+        for vm in $stale; do
+            read -p "  Remove $vm? [y/N] " confirm
+            if [[ "$confirm" =~ ^[yY]$ ]]; then
+                just _ssh "$host" "sudo virsh destroy $vm 2>/dev/null || true; \
+                    sudo virsh undefine $vm --remove-all-storage 2>/dev/null || true; \
+                    sudo rm -f /var/lib/libvirt/images/$vm.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
+                echo "  $vm: removed"
+            fi
+        done
+    done
+
+# Full sync: cleanup stale → build → provision
+vm-sync *vms: vm-cleanup
+    just vm-build {{ vms }}
+    just vm-provision {{ vms }}
+
 # =============================================================================
-# Access & Lifecycle
+# Access & Status
 # =============================================================================
 
 # Connect to node managed by colmena using generated SSH config
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
-
-# VM lifecycle control via systemd (start|stop|restart|remove)
-vm action name="all":
-    #!/usr/bin/env bash
-    data=$(nix eval --impure --json --expr "(import {{ topology }}).vms")
-    targets="{{ name }}"
-    if [ "{{ name }}" = "all" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
-
-    for vm in $targets; do
-        host=$(echo "$data" | jq -r ".\"$vm\".host")
-        case "{{ action }}" in
-            start|stop|restart) cmd="sudo systemctl {{ action }} vm-$vm.service" ;;
-            remove) 
-                cmd="sudo systemctl stop vm-$vm.service 2>/dev/null || true; \
-                     sudo virsh destroy $vm 2>/dev/null || true; \
-                     sudo virsh undefine $vm --remove-all-storage 2>/dev/null || true; \
-                     sudo rm -f /var/lib/libvirt/images/$vm.qcow2 /var/lib/libvirt/images/base/$vm.qcow2"
-                ;;
-            *) cmd="sudo virsh {{ action }} $vm" ;;
-        esac
-        echo "$vm: {{ action }}ing on $host..."
-        just _ssh "$host" "$cmd" &
-    done
-    wait
-
-# =============================================================================
-# Status & Network
-# =============================================================================
 
 # System health (uptime and disk usage)
 status:
@@ -225,6 +292,37 @@ k8s-verify:
     echo ""
     echo "=== kube-system Pods ==="
     kc "kubectl get pods -n kube-system -o wide" || echo "unavailable"
+
+# =============================================================================
+# GitOps (FluxCD)
+# =============================================================================
+
+# Bootstrap FluxCD on cluster (requires GITHUB_TOKEN env)
+flux-bootstrap owner repo="tonys-homelab" branch="main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "GITHUB_TOKEN=$GITHUB_TOKEN flux bootstrap github \
+        --owner={{ owner }} \
+        --repository={{ repo }} \
+        --branch={{ branch }} \
+        --path=k8s/clusters/homelab \
+        --personal"
+
+# FluxCD status overview
+flux-status:
+    #!/usr/bin/env bash
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "flux get all"
+
+# Trigger manual reconciliation
+flux-reconcile:
+    #!/usr/bin/env bash
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "flux reconcile source git flux-system && flux reconcile kustomization flux-system"
 
 # =============================================================================
 # Maintenance

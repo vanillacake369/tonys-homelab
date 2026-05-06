@@ -227,6 +227,37 @@ k8s-verify:
     kc "kubectl get pods -n kube-system -o wide" || echo "unavailable"
 
 # =============================================================================
+# GitOps (FluxCD)
+# =============================================================================
+
+# Bootstrap FluxCD on cluster (requires GITHUB_TOKEN env)
+flux-bootstrap owner repo="tonys-homelab" branch="main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "GITHUB_TOKEN=$GITHUB_TOKEN flux bootstrap github \
+        --owner={{ owner }} \
+        --repository={{ repo }} \
+        --branch={{ branch }} \
+        --path=k8s/clusters/homelab \
+        --personal"
+
+# FluxCD status overview
+flux-status:
+    #!/usr/bin/env bash
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "flux get all"
+
+# Trigger manual reconciliation
+flux-reconcile:
+    #!/usr/bin/env bash
+    master_ip=$(nix eval --impure --json --expr '(import {{ topology }}).vms' \
+        | jq -r 'to_entries[] | select(.key | startswith("k8s-master")) | .value.ip' | head -1)
+    ssh -F {{ ssh-config }} "$master_ip" "flux reconcile source git flux-system && flux reconcile kustomization flux-system"
+
+# =============================================================================
 # Maintenance
 # =============================================================================
 

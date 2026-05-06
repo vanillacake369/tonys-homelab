@@ -3,6 +3,7 @@
   environment.systemPackages = with pkgs; [
     sysstat
     valkey
+    fluxcd
     busybox
     vim
     neovim

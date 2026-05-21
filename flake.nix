@@ -91,6 +91,8 @@
     #   - nix run --impure .#colmena -- apply --on @{{ target }}
     # - 테스트/확인
     #   - nix run --impure .#colmena -- apply --dry-run --on @{{ target }}
+    tests = import ./tests {inherit lib;};
+
     colmenaHive = hive;
 
     # nix-topology: nix build .#topology.${targetSystem}.config.output

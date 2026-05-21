@@ -38,6 +38,10 @@
     # Homelab 타겟 아키텍처 (모든 노드 공통)
     targetSystem = "x86_64-linux";
 
+    # Auto-collect overlays from atoms (*.overlay.nix convention)
+    collectOverlays = import ./lib/collect-overlays.nix {inherit lib;};
+    overlays = collectOverlays ./atoms;
+
     # 지원 Architecture 목록
     supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
 
@@ -58,6 +62,7 @@
       lib.nixosSystem {
         system = targetSystem;
         modules = [
+          {nixpkgs.overlays = overlays;}
           nodeConfig
           inputs.nix-topology.nixosModules.default
         ];

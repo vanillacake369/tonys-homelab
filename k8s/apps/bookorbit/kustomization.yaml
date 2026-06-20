@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bookorbit
+# 표준 app.kubernetes.io 라벨을 여기서 중앙 적용한다.
+#   - includeSelectors:false 로 Deployment/StatefulSet 의 불변 selector 와
+#     Service selector 를 변형하지 않는다.
+#   - component(app/postgres)는 일부러 빼둔다. 중앙에 넣으면 모든 pod 가 같은
+#     component 로 평탄화되어 Service/NetworkPolicy 의 app↔postgres 구분이 깨진다.
+#     component 는 각 매니페스트의 pod template 에 직접 둔다.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/instance: bookorbit
+      app.kubernetes.io/part-of: bookorbit
+      app.kubernetes.io/managed-by: flux
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc-books.yaml
+  - pvc-data.yaml
+  - postgres-statefulset.yaml
+  - postgres-service.yaml
+  - postgres-headless-service.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  # secret.example.yaml 은 placeholder 라 일부러 제외한다.
+  # 실제 secret.enc.yaml 은 SOPS 게이트(docs/phase0-sops-runbook.md) 통과 후
+  #   생성하고, 그때 아래 주석을 해제한다.
+  # - secret.enc.yaml

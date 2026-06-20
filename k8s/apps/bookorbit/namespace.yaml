@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookorbit
+  # Pod Security Admission.
+  #   enforce=baseline 으로 둔다 — Postgres 의 §5b 예외(readOnlyRootFilesystem:false)가
+  #   restricted 프로파일과 충돌할 수 있어 baseline 으로 안전 마진을 둔다.
+  #   restricted 는 warn/audit 로만 적용해 더 강한 자세를 지향점으로 남긴다.
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest

@@ -1,0 +1,35 @@
+# 프로비저너의 default-deny 네트워크 정책.
+#   - ingress : 컨트롤러는 inbound 연결을 받지 않으므로 전면 차단한다.
+#   - egress  : kube-dns(이름 해석)와 kube-apiserver(PVC watch / PV·helper pod 생성)만 연다.
+# CRD-before-CR 전제: cilium.io/v2 CR 이라 CiliumNetworkPolicy CRD 가 먼저 등록돼 있어야 한다.
+#   Cilium 은 CNI 레이어(nix/ansible)에서 설치돼 CRD 가 이미 존재한다.
+#   fresh bootstrap 시에는 `kubectl get crd ciliumnetworkpolicies.cilium.io` 로 확인한 뒤
+#   Flux 를 bootstrap 한다.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: local-path-provisioner-default-deny
+  namespace: local-path-storage
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: local-path-provisioner
+  egress:
+    # 이름 해석을 위한 kube-dns(CoreDNS).
+    - toEndpoints:
+        - matchLabels:
+            k8s:k8s-app: kube-dns
+            k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # PVC watch / PV·helper pod 생성을 위한 kube-apiserver.
+    - toEntities:
+        - kube-apiserver

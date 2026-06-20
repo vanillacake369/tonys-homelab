@@ -1,0 +1,24 @@
+---
+# StatefulSet 의 governing Service(headless).
+# StatefulSet.spec.serviceName 은 per-pod 안정 DNS 를 제공하는 headless Service 를
+#   요구한다. 이 Service 는 그 정체성 요구만 충족하며, 앱은 여기로 붙지 않고
+#   일반 ClusterIP(bookorbit-postgres)로 접속한다 — 둘은 충돌하지 않는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookorbit-postgres-headless
+  namespace: bookorbit
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # 단일 replica 라 endpoint 가 Ready 전이어도 안정 DNS 가 필요하므로,
+  #   첫 부팅·롤아웃 중에도 정체성 해석이 되도록 켠다.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: bookorbit
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

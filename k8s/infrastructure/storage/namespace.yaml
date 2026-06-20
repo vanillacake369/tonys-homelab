@@ -1,0 +1,7 @@
+---
+# local-path 프로비저너 전용 네임스페이스.
+#   워크로드 네임스페이스와 분리하고, 같은 폴더의 NetworkPolicy 로 default-deny 를 건다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-path-storage

@@ -1,9 +1,11 @@
 ---
-# admin 계정 1회 자동 부트스트랩.
-#   BookOrbit 은 admin 을 env 로 만들지 않고 POST /api/v1/auth/setup (x-setup-token 헤더)로만
-#   생성한다. 이 Job 이 앱이 healthy 해질 때까지 기다렸다가 그 API 를 한 번 호출한다.
-#   토큰은 bookorbit-secret, admin 크리덴셜은 bookorbit-setup(SOPS)에서 주입한다.
-#   멱등: 이미 setup 됐으면(2xx 외 already/forbidden 응답) 성공으로 처리해 재실행에도 안전.
+# 계정 1회 자동 부트스트랩(admin + 일반 user alina).
+#   BookOrbit 은 계정을 env 로 만들지 않으므로 REST API 로 부트스트랩한다:
+#     1) admin   : POST /api/v1/auth/setup (x-setup-token 헤더)
+#     2) alina   : admin 로그인 → POST /api/v1/users (username/name/email; 비번 불가)
+#                  → 발급된 reset 토큰으로 POST /api/v1/auth/reset-password 로 비번 설정
+#   모든 크리덴셜은 bookorbit-secret(SOPS)에서 주입한다.
+#   멱등: 이미 존재하면(2xx 외 already/forbidden, 또는 user 목록에 존재) 성공 처리해 재실행 안전.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -38,49 +40,84 @@ spec:
           env:
             - name: SETUP_TOKEN
               valueFrom:
-                secretKeyRef:
-                  name: bookorbit-secret
-                  key: SETUP_BOOTSTRAP_TOKEN
+                secretKeyRef: { name: bookorbit-secret, key: SETUP_BOOTSTRAP_TOKEN }
             - name: ADMIN_USERNAME
               valueFrom:
-                secretKeyRef: { name: bookorbit-setup, key: ADMIN_USERNAME }
+                secretKeyRef: { name: bookorbit-secret, key: ADMIN_USERNAME }
             - name: ADMIN_NAME
               valueFrom:
-                secretKeyRef: { name: bookorbit-setup, key: ADMIN_NAME }
+                secretKeyRef: { name: bookorbit-secret, key: ADMIN_NAME }
             - name: ADMIN_EMAIL
               valueFrom:
-                secretKeyRef: { name: bookorbit-setup, key: ADMIN_EMAIL }
+                secretKeyRef: { name: bookorbit-secret, key: ADMIN_EMAIL }
             - name: ADMIN_PASSWORD
               valueFrom:
-                secretKeyRef: { name: bookorbit-setup, key: ADMIN_PASSWORD }
+                secretKeyRef: { name: bookorbit-secret, key: ADMIN_PASSWORD }
+            - name: USER_USERNAME
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: USER_ALINA_USERNAME }
+            - name: USER_NAME
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: USER_ALINA_NAME }
+            - name: USER_EMAIL
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: USER_ALINA_EMAIL }
+            - name: USER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: USER_ALINA_PASSWORD }
           command:
             - /bin/sh
             - -c
             - |
               set -eu
               BASE="http://bookorbit.bookorbit.svc.cluster.local:3000"
+              j() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }   # naive JSON string extractor
+
               echo "waiting for app health..."
               i=0
               until curl -fsS -m 5 "$BASE/api/v1/health" >/dev/null 2>&1; do
                 i=$((i+1)); [ "$i" -gt 60 ] && { echo "health timeout"; exit 1; }
                 sleep 5
               done
-              echo "app healthy; posting setup"
-              body=$(printf '{"username":"%s","name":"%s","email":"%s","password":"%s"}' \
+
+              echo "[1/3] admin setup"
+              ab=$(printf '{"username":"%s","name":"%s","email":"%s","password":"%s"}' \
                 "$ADMIN_USERNAME" "$ADMIN_NAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")
-              code=$(curl -sS -m 15 -o /tmp/resp -w '%{http_code}' \
-                -X POST "$BASE/api/v1/auth/setup" \
-                -H "x-setup-token: $SETUP_TOKEN" -H 'Content-Type: application/json' \
-                -d "$body")
-              echo "setup HTTP $code"; cat /tmp/resp 2>/dev/null; echo
-              case "$code" in
-                2*) echo "admin created"; exit 0;;
-                403|409) echo "already set up -> ok"; exit 0;;
-                *)
-                  grep -qiE 'already|exists|complete|disabled' /tmp/resp 2>/dev/null \
-                    && { echo "already set up -> ok"; exit 0; }
-                  echo "setup failed"; exit 1;;
+              c=$(curl -sS -m 15 -o /tmp/r -w '%{http_code}' -X POST "$BASE/api/v1/auth/setup" \
+                -H "x-setup-token: $SETUP_TOKEN" -H 'Content-Type: application/json' -d "$ab")
+              echo "  setup HTTP $c"
+              case "$c" in
+                2*|403|409) : ;;
+                *) grep -qiE 'already|exists|complete|disabled' /tmp/r || { cat /tmp/r; echo "admin setup failed"; exit 1; } ;;
               esac
+
+              echo "[2/3] admin login"
+              tok=$(curl -sS -m 15 -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+                -d "$(printf '{"username":"%s","password":"%s"}' "$ADMIN_USERNAME" "$ADMIN_PASSWORD")" | j accessToken)
+              [ -n "$tok" ] || { echo "admin login failed"; exit 1; }
+
+              echo "[3/3] ensure user '$USER_USERNAME'"
+              curl -sS -m 15 "$BASE/api/v1/users" -H "Authorization: Bearer $tok" -o /tmp/users
+              uid=$(tr '}' '\n' < /tmp/users | grep "\"username\":\"$USER_USERNAME\"" | j id | head -1)
+              if [ -z "$uid" ]; then
+                ub=$(printf '{"username":"%s","name":"%s","email":"%s"}' "$USER_USERNAME" "$USER_NAME" "$USER_EMAIL")
+                curl -sS -m 15 -o /tmp/cu -X POST "$BASE/api/v1/users" \
+                  -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d "$ub"
+                rtok=$(j resetToken < /tmp/cu); [ -n "$rtok" ] || rtok=$(grep -o 'token=[a-f0-9]*' /tmp/cu | head -1 | cut -d= -f2)
+                echo "  created $USER_USERNAME"
+              else
+                curl -sS -m 15 -o /tmp/rp -X POST "$BASE/api/v1/users/$uid/reset-password" -H "Authorization: Bearer $tok"
+                rtok=$(grep -o 'token=[a-f0-9]*' /tmp/rp | head -1 | cut -d= -f2)
+                echo "  $USER_USERNAME exists (id=$uid), issued reset"
+              fi
+              [ -n "${rtok:-}" ] || { echo "no reset token"; cat /tmp/cu /tmp/rp 2>/dev/null; exit 1; }
+
+              echo "  set $USER_USERNAME password"
+              c=$(curl -sS -m 15 -o /tmp/sp -w '%{http_code}' -X POST "$BASE/api/v1/auth/reset-password" \
+                -H 'Content-Type: application/json' \
+                -d "$(printf '{"token":"%s","password":"%s"}' "$rtok" "$USER_PASSWORD")")
+              echo "  reset-password HTTP $c"
+              case "$c" in 2*) echo "bootstrap complete"; exit 0 ;; *) cat /tmp/sp; echo "set password failed"; exit 1 ;; esac
           volumeMounts:
             - name: tmp
               mountPath: /tmp

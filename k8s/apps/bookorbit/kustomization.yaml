@@ -26,6 +26,5 @@ resources:
   - service.yaml
   - networkpolicy.yaml
   # secret.example.yaml 은 placeholder 라 일부러 제외한다.
-  # 실제 secret.enc.yaml 은 SOPS 게이트(docs/phase0-sops-runbook.md) 통과 후
-  #   생성하고, 그때 아래 주석을 해제한다.
-  # - secret.enc.yaml
+  # 실제 시크릿은 SOPS 로 암호화된 secret.enc.yaml (flux 가 복호화해 적용).
+  - secret.enc.yaml

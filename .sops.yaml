@@ -5,7 +5,17 @@ keys:
   - &homelab age1c3jrdz0rddh5z7ldeahhuqwuvqvpqhy9ecl72ugsglvrzr58rurslufy58
   # VM 공통 마스터 키
   - &vm_master age12fpt4wmpf53pwjzl8j7gwnp2l0aap2804w5rryndxlqy69788cssahzv8n
+  # BookOrbit 전용 cluster 키 (flux 의 sops-age Secret 개인키와 쌍)
+  - &cluster age13fmn0qj888sxxfrkmdkxqnw0vfkvejt986rcr900pckm3zxuns8sylm3nw
 creation_rules:
+  # k8s/ 의 암호화 Secret — flux(cluster 키)가 복호화하고, 로컬 편집은 client 키로.
+  # data/stringData 값만 암호화해 metadata 는 kustomize/flux 가 읽을 수 있게 둔다.
+  - path_regex: k8s/.*\.enc\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    key_groups:
+      - age:
+          - *cluster
+          - *client
   - path_regex: secrets/[^/]+\.(yaml|json|env|ini)$
     key_groups:
       - age:

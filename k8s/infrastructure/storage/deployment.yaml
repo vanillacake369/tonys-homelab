@@ -1,0 +1,140 @@
+# Rancher local-path-provisioner (클러스터 스토리지).
+# 업스트림 deploy/local-path-storage.yaml @ v0.0.32 을 기준으로 한다.
+# 트레이드오프(guardrail #7): 노드 로컬 스토리지라 SPOF 다.
+#   WaitForFirstConsumer 가 PV 를 노드에 고정하므로, 그 worker 가 죽으면
+#   데이터 접근이 막히고 롤아웃이 멈춘다. dev-only 비-HA 로 수용하고(OD-A),
+#   HA 가 필요해지면 Longhorn 으로 이전한다.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-path-provisioner
+  namespace: local-path-storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: local-path-provisioner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: local-path-provisioner
+    spec:
+      serviceAccountName: local-path-provisioner-service-account
+      # 컨트롤러 바이너리는 권한 보정이 필요 없어 비-root 로 충분하다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: local-path-provisioner
+          # digest 고정. skopeo 로 검증함(2026-06-20, sha256:9289da48...0cc68 일치).
+          image: docker.io/rancher/local-path-provisioner:v0.0.32@sha256:9289da488b07912cb4128eb96928a331a5f3e60c28c5cfc5790f354a4ad0cc68
+          imagePullPolicy: IfNotPresent
+          command:
+            - local-path-provisioner
+            - start
+            - --config
+            - /etc/config/config.json
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_MOUNT_PATH
+              value: /etc/config/
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config/
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          # HTTP health 엔드포인트가 없어, 바이너리 프로세스 존재를 exec 로 검사한다
+          #   (guardrail §4: 잘못된 경로 probe 대신 명시적 선택).
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pgrep -f local-path-provisioner"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pgrep -f local-path-provisioner"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pgrep -f local-path-provisioner"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config-volume
+          configMap:
+            name: local-path-config
+---
+# 프로비저너 설정: 노드의 PV 저장 경로 + helper pod 스펙.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-path-config
+  namespace: local-path-storage
+data:
+  config.json: |-
+    {
+      "nodePathMap": [
+        {
+          "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",
+          "paths": ["/opt/local-path-provisioner"]
+        }
+      ]
+    }
+  setup: |-
+    #!/bin/sh
+    set -eu
+    # 0777 은 업스트림 기본값(소비 pod 가 UID 와 무관하게 쓰도록).
+    #   모든 소비자의 fsGroup 이 보장되면 0700/0750 으로 좁힐 수 있다.
+    mkdir -m 0777 -p "$VOL_DIR"
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    # set -u 가 빈 VOL_DIR 을 막아 rm -rf "" 사고를 방지한다.
+    rm -rf "$VOL_DIR"
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: helper-pod
+          # 호스트 경로의 mkdir/rm 에 root 가 필요한 업스트림 요구 예외(guardrail §6).
+          #   PV 프로비전/삭제마다 잠깐 떴다 사라지는 ephemeral pod 다.
+          # digest 고정. skopeo 로 검증함(2026-06-20, sha256:73aaf090...11662 일치).
+          image: docker.io/library/busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

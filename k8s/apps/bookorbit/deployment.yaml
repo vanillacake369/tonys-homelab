@@ -51,8 +51,18 @@ spec:
           envFrom:
             - configMapRef:
                 name: bookorbit-config
-            - secretRef:
-                name: bookorbit-secret
+          # secret 은 app 이 쓰는 3개 키만 명시 주입한다.
+          #   (admin/alina 크리덴셜도 같은 secret 에 있지만 app 컨테이너 env 로는 새지 않게 한다.)
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: POSTGRES_PASSWORD }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: JWT_SECRET }
+            - name: SETUP_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef: { name: bookorbit-secret, key: SETUP_BOOTSTRAP_TOKEN }
           # startup 이 성공하기 전까지 readiness/liveness 는 동작하지 않는다.
           #   5s × 12 = 약 60s 의 기동 시간을 허용한다.
           startupProbe:

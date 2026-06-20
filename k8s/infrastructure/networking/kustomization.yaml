@@ -1,13 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# infrastructure 레이어의 인덱스(folder-of-folders): Helm 소스 + 스토리지.
-#   레이어 공통 라벨(part-of/managed-by)만 중앙 적용한다.
+# 공유 네트워킹: LB-IPAM 풀 + L2 광고 + Gateway 진입점.
 labels:
   - pairs:
       app.kubernetes.io/part-of: homelab-infrastructure
       app.kubernetes.io/managed-by: flux
     includeSelectors: false
 resources:
-  - sources
-  - storage
-  - networking
+  - namespace.yaml
+  - lb-ippool.yaml
+  - l2-announcement.yaml
+  - gateway.yaml

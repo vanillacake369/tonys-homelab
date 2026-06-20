@@ -29,3 +29,5 @@ resources:
   # secret.example.yaml 은 placeholder 라 일부러 제외한다.
   # 실제 시크릿은 SOPS 로 암호화된 secret.enc.yaml (flux 가 복호화해 적용).
   - secret.enc.yaml
+  - setup-secret.enc.yaml # admin 부트스트랩 크리덴셜(setup Job 전용)
+  - setup-job.yaml # admin 계정 1회 자동 생성

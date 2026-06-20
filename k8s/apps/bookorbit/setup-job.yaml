@@ -1,0 +1,92 @@
+---
+# admin 계정 1회 자동 부트스트랩.
+#   BookOrbit 은 admin 을 env 로 만들지 않고 POST /api/v1/auth/setup (x-setup-token 헤더)로만
+#   생성한다. 이 Job 이 앱이 healthy 해질 때까지 기다렸다가 그 API 를 한 번 호출한다.
+#   토큰은 bookorbit-secret, admin 크리덴셜은 bookorbit-setup(SOPS)에서 주입한다.
+#   멱등: 이미 setup 됐으면(2xx 외 already/forbidden 응답) 성공으로 처리해 재실행에도 안전.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bookorbit-setup
+  namespace: bookorbit
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bookorbit
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker-1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: setup
+          image: docker.io/curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: SETUP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bookorbit-secret
+                  key: SETUP_BOOTSTRAP_TOKEN
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef: { name: bookorbit-setup, key: ADMIN_USERNAME }
+            - name: ADMIN_NAME
+              valueFrom:
+                secretKeyRef: { name: bookorbit-setup, key: ADMIN_NAME }
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef: { name: bookorbit-setup, key: ADMIN_EMAIL }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookorbit-setup, key: ADMIN_PASSWORD }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              BASE="http://bookorbit.bookorbit.svc.cluster.local:3000"
+              echo "waiting for app health..."
+              i=0
+              until curl -fsS -m 5 "$BASE/api/v1/health" >/dev/null 2>&1; do
+                i=$((i+1)); [ "$i" -gt 60 ] && { echo "health timeout"; exit 1; }
+                sleep 5
+              done
+              echo "app healthy; posting setup"
+              body=$(printf '{"username":"%s","name":"%s","email":"%s","password":"%s"}' \
+                "$ADMIN_USERNAME" "$ADMIN_NAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")
+              code=$(curl -sS -m 15 -o /tmp/resp -w '%{http_code}' \
+                -X POST "$BASE/api/v1/auth/setup" \
+                -H "x-setup-token: $SETUP_TOKEN" -H 'Content-Type: application/json' \
+                -d "$body")
+              echo "setup HTTP $code"; cat /tmp/resp 2>/dev/null; echo
+              case "$code" in
+                2*) echo "admin created"; exit 0;;
+                403|409) echo "already set up -> ok"; exit 0;;
+                *)
+                  grep -qiE 'already|exists|complete|disabled' /tmp/resp 2>/dev/null \
+                    && { echo "already set up -> ok"; exit 0; }
+                  echo "setup failed"; exit 1;;
+              esac
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -27,7 +27,6 @@ resources:
   - networkpolicy.yaml
   - httproute.yaml
   # secret.example.yaml 은 placeholder 라 일부러 제외한다.
-  # 실제 시크릿은 SOPS 로 암호화된 secret.enc.yaml (flux 가 복호화해 적용).
+  # 모든 시크릿(app 런타임 + admin/alina 부트스트랩)을 담은 SOPS 암호화 파일.
   - secret.enc.yaml
-  - setup-secret.enc.yaml # admin 부트스트랩 크리덴셜(setup Job 전용)
-  - setup-job.yaml # admin 계정 1회 자동 생성
+  - setup-job.yaml # admin + alina 계정 1회 자동 부트스트랩

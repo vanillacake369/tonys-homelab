@@ -1,0 +1,11 @@
+---
+# Cilium LB-IPAM 풀.
+# LoadBalancer 타입 서비스(여기서는 Gateway)가 이 대역에서 외부 IP 를 받는다.
+# VLAN20(10.0.20.0/24)에서 노드(.10/.21/.22)·API VIP(.100)와 겹치지 않는 .240/29.
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: vlan20-pool
+spec:
+  blocks:
+    - cidr: 10.0.20.240/29

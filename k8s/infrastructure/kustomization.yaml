@@ -10,3 +10,4 @@ labels:
 resources:
   - sources
   - storage
+  - networking

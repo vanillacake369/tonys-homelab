@@ -9,11 +9,11 @@ metadata:
   namespace: bookorbit
 data:
   # 앱이 링크(OPDS 등)를 만들 때 쓰는 외부 접속 URL.
-  # tailnet 에 올라온 디바이스는 homelab-1 하나뿐이라 그 MagicDNS 이름으로 접근한다
-  #   (suffix = taild94cc1.ts.net).
-  # 전용 호스트명·TLS·ingress 도입 시 교체한다.
-  APP_URL: "http://homelab-1.taild94cc1.ts.net:3000"
-  CLIENT_URL: "http://homelab-1.taild94cc1.ts.net:3000"
+  # Tailscale Serve 가 homelab-1 의 MagicDNS 이름에 HTTPS(Let's Encrypt)를 종단하고
+  #   Cilium Gateway(LB 10.0.20.240:80)로 프록시한다(suffix = taild94cc1.ts.net).
+  # 가비아 도메인 도입 시 그 호스트명으로 교체한다.
+  APP_URL: "https://homelab-1.taild94cc1.ts.net"
+  CLIENT_URL: "https://homelab-1.taild94cc1.ts.net"
   PORT: "3000"
   NODE_ENV: "production"
   # Postgres 연결 정보(비밀번호만 Secret 으로 분리).

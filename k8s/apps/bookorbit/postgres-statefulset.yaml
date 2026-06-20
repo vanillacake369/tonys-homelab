@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bookorbit-postgres
+  namespace: bookorbit
+spec:
+  # StatefulSet 의 governing Service 는 headless 여야 한다(K8s 요구사항).
+  #   앱은 이 이름이 아니라 일반 ClusterIP(bookorbit-postgres)로 접속한다.
+  serviceName: bookorbit-postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bookorbit
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      # 앱과 같은 노드에 둔다(local-path RWO 바인딩 정합).
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker-1
+      # postgres 이미지의 entrypoint 가 socket/tmp/PGDATA 에 쓰므로
+      #   readOnlyRootFilesystem 은 false 로 둔다(§5b 의 문서화된 예외).
+      # 대신 비-root(uid 999) + drop ALL + fsGroup 으로 권한을 최소화한다.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16@sha256:7d400e340efb42f4d8c9c12c6427adb253f726881a9985d2a471bf0eed824dff
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          # 보수적 시작값. pgvector HNSW 인덱스 빌드는 메모리를 많이 쓰므로
+          #   OOMKill 을 모니터링하며 limit(2Gi)과 함께 상향을 검토한다.
+          args:
+            - "-c"
+            - "shared_buffers=128MB"
+            - "-c"
+            - "work_mem=64MB"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: bookorbit-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: bookorbit-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bookorbit-secret
+                  key: POSTGRES_PASSWORD
+            # 데이터를 마운트 root 가 아니라 하위 디렉토리에 둔다.
+            #   (마운트 root 직접 사용 시 lost+found 등으로 initdb 가 실패할 수 있다.)
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # 첫 initdb 동안 liveness 가 조기에 pod 를 죽이지 않도록
+          #   startupProbe 로 기동 윈도우(최대 ~100s)를 흡수한다.
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "bookorbit", "-d", "bookorbit"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 20
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bookorbit", "-d", "bookorbit"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bookorbit", "-d", "bookorbit"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              # 시작 ceiling. 벡터 인덱스 빌드 시 상향을 검토한다.
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # §5b 예외: entrypoint 가 컨테이너 rootfs(socket/tmp/PGDATA)에 쓴다.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

@@ -1,0 +1,15 @@
+---
+# 앱 데이터 볼륨(/data: covers/uploads/cache/Book Dock).
+# RWO, local-path StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bookorbit-data
+  namespace: bookorbit
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

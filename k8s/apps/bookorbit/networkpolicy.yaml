@@ -1,0 +1,78 @@
+---
+# bookorbit 네임스페이스의 네트워크 격리.
+# Cilium 은 endpointSelector 에 매칭된 pod 를 isolated 로 만들고, 아래 명시한
+#   ingress/egress 규칙만 통과시킨다(나머지는 default-deny).
+# app 과 postgres 를 각각 한 정책으로 분리해 둔다(SRP).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: bookorbit-app
+  namespace: bookorbit
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/component: app
+  # 현재는 app 으로의 모든 ingress 를 막는다(빈 목록 = 전면 차단).
+  #   gateway 도입 시 gateway→app:3000 ingress 를 추가한다.
+  ingress: []
+  egress:
+    # 이름 해석을 위한 kube-dns(CoreDNS) egress.
+    - toEndpoints:
+        - matchLabels:
+            k8s:k8s-app: kube-dns
+            k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # 앱 → Postgres(5432).
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: bookorbit
+            app.kubernetes.io/component: postgres
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: bookorbit-postgres
+  namespace: bookorbit
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/component: postgres
+  ingress:
+    # DB 는 앱 pod 의 5432 접속만 허용한다(외부 노출 차단).
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: bookorbit
+            app.kubernetes.io/component: app
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  egress:
+    # Postgres 는 외부 통신이 필요 없으므로 DNS egress 만 연다.
+    - toEndpoints:
+        - matchLabels:
+            k8s:k8s-app: kube-dns
+            k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"

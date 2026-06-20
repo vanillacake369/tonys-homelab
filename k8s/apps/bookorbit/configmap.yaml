@@ -1,0 +1,34 @@
+---
+# BookOrbit 의 non-secret 환경변수.
+# 시크릿(POSTGRES_PASSWORD / JWT_SECRET / SETUP_BOOTSTRAP_TOKEN)은 여기 두지 않고
+# SOPS 로 암호화된 secret.enc.yaml 로 분리한다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookorbit-config
+  namespace: bookorbit
+data:
+  # 앱이 링크(OPDS 등)를 만들 때 쓰는 외부 접속 URL.
+  # tailnet 에 올라온 디바이스는 homelab-1 하나뿐이라 그 MagicDNS 이름으로 접근한다
+  #   (suffix = taild94cc1.ts.net).
+  # 전용 호스트명·TLS·ingress 도입 시 교체한다.
+  APP_URL: "http://homelab-1.taild94cc1.ts.net:3000"
+  CLIENT_URL: "http://homelab-1.taild94cc1.ts.net:3000"
+  PORT: "3000"
+  NODE_ENV: "production"
+  # Postgres 연결 정보(비밀번호만 Secret 으로 분리).
+  POSTGRES_HOST: "bookorbit-postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: "bookorbit"
+  POSTGRES_DB: "bookorbit"
+  # 컨테이너가 권한 보정에 쓰는 UID/GID(업스트림 default 1000).
+  PUID: "1000"
+  PGID: "1000"
+  # Node 힙 상한(MiB). 컨테이너 limits.memory(2.5Gi)보다 작게 유지한다.
+  NODE_MAX_OLD_SPACE_SIZE: "2048"
+  # Book Dock 자동 임포트 폴더(/data 볼륨 하위).
+  BOOK_DOCK_PATH: "/data/book-dock"
+  # 보안 자세 option-2(k8s-native): 컨테이너 첫 부팅의 권한 보정을 끄고
+  #   fsGroup/runAsUser=1000 으로 k8s 가 PVC 소유를 처리한다.
+  # 첫 부팅이 권한 문제로 깨지면 "true" 로 바꿔 option-1(upstream)로 전환한다.
+  BOOKORBIT_FIX_PERMISSIONS: "false"

@@ -1,0 +1,108 @@
+---
+# BookOrbit 앱 워크로드.
+# 보안 컨텍스트는 design §5a 의 option-2(k8s-native 하드닝)를 적용한다:
+#   - fsGroup/runAsUser=1000 으로 PVC 소유를 k8s 가 자동 보정
+#   - runAsNonRoot + drop ALL + readOnlyRootFilesystem 으로 최소권한
+# 첫 부팅이 권한 보정 문제로 실패하면 option-1(upstream docker-compose 방식)로
+#   전환한다 — 절차는 docs/bookorbit-design.md, 토글은 configmap 의
+#   BOOKORBIT_FIX_PERMISSIONS 를 본다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookorbit
+  namespace: bookorbit
+spec:
+  replicas: 1
+  strategy:
+    # 단일 RWO PVC(/books, /data)를 두 pod 가 동시에 잡지 못하도록
+    #   기존 pod 를 먼저 종료한 뒤 새 pod 를 만든다.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bookorbit
+        app.kubernetes.io/component: app
+    spec:
+      # 앱은 Kubernetes API 를 쓰지 않으므로 SA 토큰을 마운트하지 않는다.
+      automountServiceAccountToken: false
+      # 앱·Postgres·3 PVC 를 같은 노드에 모은다.
+      #   local-path 는 노드 로컬이라 분산되면 PVC 바인딩/통신이 어긋난다.
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker-1
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bookorbit
+          # 안정 릴리스 1.3.0 을 digest 로 고정한다(ghcr 는 public → pull secret 불필요).
+          image: ghcr.io/bookorbit/bookorbit:1.3.0@sha256:5826768f84739c060da001e83bb546c6208c7487f71fd7bd3c5915559a04466f
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: bookorbit-config
+            - secretRef:
+                name: bookorbit-secret
+          # startup 이 성공하기 전까지 readiness/liveness 는 동작하지 않는다.
+          #   5s × 12 = 약 60s 의 기동 시간을 허용한다.
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              # NODE_MAX_OLD_SPACE_SIZE(2048Mi) + 런타임 여유.
+              memory: 2.5Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: books
+              mountPath: /books
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem:true 라 쓰기 가능한 /tmp 를 따로 마운트한다.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: books
+          persistentVolumeClaim:
+            claimName: bookorbit-books
+        - name: data
+          persistentVolumeClaim:
+            claimName: bookorbit-data
+        - name: tmp
+          emptyDir: {}

@@ -13,11 +13,19 @@ spec:
     matchLabels:
       app.kubernetes.io/name: bookorbit
       app.kubernetes.io/component: app
-  # Cilium Gateway 의 Envoy ingress 프록시에서만 app:3000 으로 ingress 허용.
-  #   (외부 트래픽은 Tailscale Serve → Gateway → 이 프록시를 거쳐 들어온다.)
   ingress:
+    # Cilium Gateway 의 Envoy ingress 프록시(외부 트래픽 경로).
     - fromEntities:
         - ingress
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # admin 부트스트랩 Job(같은 ns)에서의 1회성 setup 호출.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: bookorbit
+            app.kubernetes.io/component: setup
       toPorts:
         - ports:
             - port: "3000"
@@ -82,3 +90,38 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: bookorbit-setup
+  namespace: bookorbit
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+      app.kubernetes.io/component: setup
+  egress:
+    # 이름 해석을 위한 kube-dns(CoreDNS).
+    - toEndpoints:
+        - matchLabels:
+            k8s:k8s-app: kube-dns
+            k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # setup Job -> app:3000 (auth/setup 호출).
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: bookorbit
+            app.kubernetes.io/component: app
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

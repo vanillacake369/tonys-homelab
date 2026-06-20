@@ -13,9 +13,15 @@ spec:
     matchLabels:
       app.kubernetes.io/name: bookorbit
       app.kubernetes.io/component: app
-  # 현재는 app 으로의 모든 ingress 를 막는다(빈 목록 = 전면 차단).
-  #   gateway 도입 시 gateway→app:3000 ingress 를 추가한다.
-  ingress: []
+  # Cilium Gateway 의 Envoy ingress 프록시에서만 app:3000 으로 ingress 허용.
+  #   (외부 트래픽은 Tailscale Serve → Gateway → 이 프록시를 거쳐 들어온다.)
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
   egress:
     # 이름 해석을 위한 kube-dns(CoreDNS) egress.
     - toEndpoints:

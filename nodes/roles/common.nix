@@ -2,7 +2,6 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }: {
   system.stateVersion = "24.11";
@@ -21,22 +20,6 @@
     "9pnet_virtio"
   ];
 
-  # 모든 사용자의 기본 쉘을 fish로 설정 (VM의 root 사용자 포함)
-  users.defaultUserShell = pkgs.fish;
-
-  # root 사용자 비밀번호 (SOPS)
-  sops.secrets."users/rootPassword" = {
-    neededForUsers = true;
-  };
-  users.users.root.hashedPasswordFile = config.sops.secrets."users/rootPassword".path;
-
-  # Bash로 접속하더라도 fish로 자동 전환되도록 설정 (optional, but robust)
-  programs.bash.interactiveShellInit = ''
-    if [[ $([[ -t 0 ]] && echo 1) -eq 1 ]]; then
-      exec ${pkgs.fish}/bin/fish
-    fi
-  '';
-
   imports = [
     ../../atoms/system/sops.nix
     ../../atoms/system/nix.nix
@@ -44,6 +27,7 @@
     ../../atoms/system/timesyncd.nix
     ../../atoms/system/shell.nix
     ../../atoms/system/cli-tools.nix
+    ../../atoms/user/root.nix
     ../../atoms/network/ssh-server.nix
     ../../atoms/network/network-base.nix
     ../../atoms/system/authorized-keys.nix

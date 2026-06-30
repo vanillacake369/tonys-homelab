@@ -1,11 +1,16 @@
 # Guard tests: overlay 구조 및 topology 정합성 검증.
 # Run: nix eval .#tests.summary --json
 # Run verbose: nix eval .#tests.results --json | python3 -m json.tool
-{lib}: let
+{
+  lib,
+  nixosConfigurations ? {},
+}: let
   # --- Fixtures ---
   collectOverlays = import ../lib/collect-overlays.nix {inherit lib;};
   collected = collectOverlays ../atoms;
   topology = import ../network/topology.nix;
+  homelabConfig = nixosConfigurations.homelab-1.config or null;
+  ipadHomelabPub = lib.removeSuffix "\n" (builtins.readFile ../secrets/ipad-homelab.pub);
 
   # --- Assertion helper ---
   assert' = name: cond:
@@ -38,7 +43,22 @@
   ];
 
   # =========================================================================
-  allTests = overlayTests ++ topologyTests;
+  # 3. Remote iPad Access Guardrails
+  # =========================================================================
+  remoteAccessTests =
+    lib.optionals (homelabConfig != null) [
+      (assert' "remote-access: users are declarative" (!homelabConfig.users.mutableUsers))
+      (assert' "remote-access: root password comes from sops" (homelabConfig.users.users.root.hashedPasswordFile == homelabConfig.sops.secrets."users/rootPassword".path))
+      (assert' "remote-access: homelab deployment user remains limjihoon" (homelabConfig.node.user == "limjihoon"))
+      (assert' "remote-access: remote user is not declared" (!(homelabConfig.users.users ? remote)))
+      (assert' "remote-access: ipad homelab key is assigned to limjihoon" (builtins.elem ipadHomelabPub homelabConfig.users.users.limjihoon.openssh.authorizedKeys.keys))
+      (assert' "remote-access: ipad homelab key is not assigned to root" (!(builtins.elem ipadHomelabPub homelabConfig.users.users.root.openssh.authorizedKeys.keys)))
+      (assert' "remote-access: tailscale remains enabled" homelabConfig.services.tailscale.enable)
+      (assert' "remote-access: tailscale ssh flag is removed" (!(builtins.elem "--ssh" homelabConfig.services.tailscale.extraSetFlags)))
+    ];
+
+  # =========================================================================
+  allTests = overlayTests ++ topologyTests ++ remoteAccessTests;
 in {
   results = allTests;
   summary = {

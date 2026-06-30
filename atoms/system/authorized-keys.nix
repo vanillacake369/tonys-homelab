@@ -13,16 +13,20 @@
     then [(lib.removeSuffix "\n" (builtins.readFile file))]
     else [];
 
-  keys =
+  infraKeys =
     (readKey ../../secrets/limjihoon.pub)
     ++ (readKey ../../secrets/homelab-1.pub);
+
+  ipadHomelabKeys = readKey ../../secrets/ipad-homelab.pub;
 in {
   users.users = lib.mkMerge [
     {
-      root.openssh.authorizedKeys.keys = keys;
+      root.openssh.authorizedKeys.keys = infraKeys;
     }
     (lib.mkIf (config.node.user != "root") {
-      "${config.node.user}".openssh.authorizedKeys.keys = keys;
+      "${config.node.user}".openssh.authorizedKeys.keys =
+        infraKeys
+        ++ lib.optionals (config.node.hostType == "physical") ipadHomelabKeys;
     })
   ];
 }

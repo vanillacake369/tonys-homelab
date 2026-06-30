@@ -69,7 +69,7 @@ in {
         };
         script = ''
           SECRET=$(cat "${clientSecret}")
-          tailscale up --reset --authkey="$SECRET" --ssh --netfilter-mode=nodivert --advertise-exit-node
+          tailscale up --reset --authkey="$SECRET" --netfilter-mode=nodivert --advertise-exit-node
         '';
       };
     };
@@ -89,7 +89,6 @@ in {
   services.tailscale = {
     enable = true;
     extraSetFlags = [
-      "--ssh"
       "--netfilter-mode=nodivert"
       "--advertise-exit-node"
     ];

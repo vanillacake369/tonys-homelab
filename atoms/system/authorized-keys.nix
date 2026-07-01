@@ -7,10 +7,12 @@
   lib,
   ...
 }: let
-  # 파일이 있으면 읽어오고, 없으면 빈 리스트 반환 (안전장치)
+  # 파일이 있으면 줄 단위 공개키 목록으로 읽어오고, 없으면 빈 리스트 반환 (안전장치)
   readKey = file:
     if builtins.pathExists file
-    then [(lib.removeSuffix "\n" (builtins.readFile file))]
+    then
+      builtins.filter (key: key != "")
+      (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)))
     else [];
 
   infraKeys =

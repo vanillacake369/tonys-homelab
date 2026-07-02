@@ -58,7 +58,7 @@
     # Host 구성 헬퍼함수인 mk-colmena
     hive = import ./lib/mk-colmena.nix {inherit lib inputs targetSystem mkHost mkVMs;};
 
-    nixosConfigurations = lib.mapAttrs (name: nodeConfig:
+    nixosConfigurations = lib.mapAttrs (_: nodeConfig:
       lib.nixosSystem {
         system = targetSystem;
         modules = [

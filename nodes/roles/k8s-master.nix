@@ -1,4 +1,4 @@
-{pkgs, ...}: {
+{...}: {
   imports = [
     ./common.nix
     ../../atoms/k8s/container-runtime.nix

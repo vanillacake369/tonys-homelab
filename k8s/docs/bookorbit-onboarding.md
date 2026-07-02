@@ -103,12 +103,14 @@ curl -s https://homelab-1.taild94cc1.ts.net/api/v1/health
 ```
 
 #### 2) 어드민(admin) 계정 로그인 및 토큰 획득
-`secret.enc.yaml`에 정의한 `ADMIN_USERNAME`과 `ADMIN_PASSWORD`로 REST API 로그인을 시도해 정상 접속 여부를 확인합니다.
+`secret.enc.yaml`에 정의한 `ADMIN_USERNAME`과 `ADMIN_PASSWORD`를 환경변수로 주입해 REST API 로그인을 시도해 정상 접속 여부를 확인합니다.
 ```bash
 # 로그인 요청 및 Access Token 추출
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="<admin-password>"
 ADMIN_TOKEN=$(curl -s -X POST "https://homelab-1.taild94cc1.ts.net/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"<admin-password>"}' \
+  -d "{\"username\":\"${ADMIN_USERNAME}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
   | jq -r '.accessToken')
 
 echo "Admin JWT Token: $ADMIN_TOKEN"
@@ -118,9 +120,11 @@ echo "Admin JWT Token: $ADMIN_TOKEN"
 `setup-job`에 의해 자동으로 부트스트랩된 일반 사용자 `alina` 계정으로 REST API 로그인을 테스트합니다.
 ```bash
 # alina 로그인 요청 및 Access Token 추출
+USER_USERNAME="alina"
+USER_PASSWORD="<user-password>"
 USER_TOKEN=$(curl -s -X POST "https://homelab-1.taild94cc1.ts.net/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alina","password":"<user-password>"}' \
+  -d "{\"username\":\"${USER_USERNAME}\",\"password\":\"${USER_PASSWORD}\"}" \
   | jq -r '.accessToken')
 
 echo "User Alina JWT Token: $USER_TOKEN"

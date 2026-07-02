@@ -1,7 +1,7 @@
 # Pin cilium-cli to match deployed Cilium version (network/topology.nix: cilium_helm_version).
 # Prevents CLI/controller version mismatch that can break cilium status/connectivity test.
-final: prev: {
-  cilium-cli = prev.cilium-cli.overrideAttrs (old: rec {
+_: prev: {
+  cilium-cli = prev.cilium-cli.overrideAttrs (_: rec {
     version = "0.19.2";
     src = prev.fetchFromGitHub {
       owner = "cilium";

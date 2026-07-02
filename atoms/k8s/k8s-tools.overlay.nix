@@ -1,7 +1,7 @@
 # Pin K8s tools to match cluster version (ansible/group_vars/all.yml: k8s_version).
 # Prevents nixpkgs-unstable from upgrading kubectl/kubeadm beyond cluster's ±1 minor skew.
-final: prev: {
-  kubernetes = prev.kubernetes.overrideAttrs (old: rec {
+_: prev: {
+  kubernetes = prev.kubernetes.overrideAttrs (_: rec {
     version = "1.35.3";
     src = prev.fetchFromGitHub {
       owner = "kubernetes";

@@ -1,6 +1,6 @@
 # nodes/roles/worker.nix
 # K8s Worker Node Strategy
-{pkgs, ...}: {
+{...}: {
   imports = [
     ./common.nix
     ../../atoms/k8s/container-runtime.nix

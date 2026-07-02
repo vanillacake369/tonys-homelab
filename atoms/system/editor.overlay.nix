@@ -1,6 +1,6 @@
 # Pin neovim to 0.11.x — synced with tonys-nix to ensure config compatibility.
-final: prev: {
-  neovim = prev.neovim.overrideAttrs (old: rec {
+_: prev: {
+  neovim = prev.neovim.overrideAttrs (_: rec {
     version = "0.11.6";
     src = prev.fetchFromGitHub {
       owner = "neovim";

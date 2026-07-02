@@ -1,6 +1,6 @@
 # Atoms: Container Runtime
 # Kernel modules and Containerd engine.
-{pkgs, ...}: {
+{...}: {
   boot.kernelModules = ["overlay" "br_netfilter"];
   boot.kernel.sysctl = {
     "net.ipv4.ip_forward" = 1;

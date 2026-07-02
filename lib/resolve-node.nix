@@ -15,10 +15,14 @@
   };
 
   vmInfo = let
-    parentName = builtins.head (builtins.attrNames topology.hosts);
-    parent = topology.hosts.${parentName};
+    vm = topology.vms.${node};
+    parentName = vm.host;
+    parent =
+      if builtins.hasAttr parentName topology.hosts
+      then topology.hosts.${parentName}
+      else builtins.throw "VM ${node} references unknown parent host ${parentName}";
   in {
-    ip = topology.vms.${node}.ip;
+    ip = vm.ip;
     user = "root";
     type = "vm";
     parentIp = parent.ip;

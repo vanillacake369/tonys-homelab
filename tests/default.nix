@@ -7,6 +7,7 @@
 }: let
   # --- Fixtures ---
   collectOverlays = import ../lib/collect-overlays.nix {inherit lib;};
+  resolveNode = import ../lib/resolve-node.nix;
   collected = collectOverlays ../atoms;
   topology = import ../network/topology.nix;
   homelabConfig = nixosConfigurations.homelab-1.config or null;
@@ -43,6 +44,13 @@
     (assert' "topology: k8s_version in ansible matches" true)
     (assert' "topology: vms have required fields" (builtins.all (vm: vm ? ip && vm ? mac && vm ? host) (builtins.attrValues topology.vms)))
     (assert' "topology: hosts have required fields" (builtins.all (h: h ? ip && h ? user) (builtins.attrValues topology.hosts)))
+    (assert' "topology: VM parent hosts exist" (builtins.all (vm: builtins.hasAttr vm.host topology.hosts) (builtins.attrValues topology.vms)))
+    (assert' "topology: resolve-node uses declared VM parent" (builtins.all (name: let
+      resolved = resolveNode {node = name;};
+      parent = topology.hosts.${topology.vms.${name}.host};
+    in
+      resolved.parentIp == parent.ip && resolved.parentUser == parent.user)
+    (builtins.attrNames topology.vms)))
   ];
 
   # =========================================================================

@@ -28,7 +28,7 @@ in {
     ../../atoms/user/limjihoon.nix
     ../../atoms/system/git.nix
     ../../atoms/network/ssh-client.nix
-    ./disko-config.nix
+    ./disko-config-homelab-1.nix
   ];
 
   node = {

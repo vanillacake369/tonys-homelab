@@ -1,4 +1,10 @@
 {pkgs, ...}: {
+  programs.bash.interactiveShellInit = ''
+    if [[ $([[ -t 0 ]] && echo 1) -eq 1 ]]; then
+      exec ${pkgs.fish}/bin/fish
+    fi
+  '';
+
   programs.fish = {
     enable = true;
 

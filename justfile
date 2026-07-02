@@ -2,6 +2,18 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 topology := "./network/topology.nix"
 
+# =============================================================================
+# Local CI
+# =============================================================================
+
+# Run the same guard checks used by GitHub Actions
+check-ci:
+    ./scripts/check-ci-local
+
+# Install repository-managed git hooks locally
+install-hooks:
+    git config core.hooksPath .githooks
+
 # [최적화] Topology 상수와 Tailscale 상태를 결합하여 최적의 경로 선택
 
 ssh-config := ```

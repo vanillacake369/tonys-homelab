@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+max_nixpkgs_age_days="${MAX_NIXPKGS_AGE_DAYS:-30}"
+
+run() {
+  printf '\n==> %s\n' "$*"
+  "$@"
+}
+
+check_nixpkgs_age() {
+  local last_modified now age_seconds age_days
+
+  last_modified="$(
+    nix eval --impure --raw --expr \
+      'toString (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.nixpkgs.locked.lastModified'
+  )"
+  now="$(date +%s)"
+  age_seconds="$((now - last_modified))"
+  age_days="$((age_seconds / 86400))"
+
+  printf '\n==> nixpkgs lock age: %s days (max %s)\n' "$age_days" "$max_nixpkgs_age_days"
+  if [ "$age_days" -gt "$max_nixpkgs_age_days" ]; then
+    cat >&2 <<EOF
+nixpkgs input is too old for flake-checker.
+Run:
+  nix flake lock --update-input nixpkgs
+EOF
+    exit 1
+  fi
+}
+
+check_tracked_tree_secrets() {
+  local tmp_dir
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' RETURN
+
+  git archive --format=tar HEAD | tar -x -C "$tmp_dir"
+  run nix-shell -p gitleaks --run "gitleaks detect --source '$tmp_dir' --no-git --redact"
+}
+
+run nix-shell -p deadnix --run "deadnix --fail"
+run nix flake check --impure --no-build
+check_tracked_tree_secrets
+check_nixpkgs_age
+
+printf '\nAll local CI checks passed.\n'

@@ -6,7 +6,7 @@
 # - role: VM 이름 패턴에서 동적 도출 (k8s-master-* / k8s-worker-*)
 # - vlan: IP 프리픽스를 topology.nix의 VLAN network와 매칭하여 도출
 # ------------------------------------------------------------
-{deploy_target ? ""}: let
+{...}: let
   network = import ../network/topology.nix;
 
   # VM 이름에서 Ansible role 도출 (k8s-master-* → "master")

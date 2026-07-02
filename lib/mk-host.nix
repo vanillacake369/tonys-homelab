@@ -1,6 +1,6 @@
 # Host 구성 선언을 도와주는 헬퍼함수
-# - nodes/physical/*.nix 자동 탐색 (extract-filename.nix)
-# - data 의존성 없음: 각 노드 파일이 IaC Contract 값을 자체 선언
+# - network/topology.nix hosts 를 기준으로 물리 호스트 엔트리 탐색
+# - 각 노드 파일이 IaC Contract 값을 자체 선언
 # - deployment 설정은 mk-colmena.nix 에서 담당
 # - nixosConfigurations 선언:
 #   - disko
@@ -11,9 +11,9 @@
   inputs,
   targetSystem,
 }: rec {
-  discoverNodes = import ./extract-filename.nix {inherit lib;};
+  topology = import ../network/topology.nix;
 
-  hostNames = discoverNodes ../nodes/physical;
+  hostNames = builtins.attrNames topology.hosts;
 
   mkHost = name: {
     # 시스템 호스트명과 아키텍처 지정 (노드 파일에서 override 가능)

@@ -28,7 +28,7 @@ in {
     ../../atoms/user/limjihoon.nix
     ../../atoms/system/git.nix
     ../../atoms/network/ssh-client.nix
-    ./disko-config.nix
+    ./disko-config-homelab-1.nix
   ];
 
   node = {
@@ -69,7 +69,7 @@ in {
         };
         script = ''
           SECRET=$(cat "${clientSecret}")
-          tailscale up --reset --authkey="$SECRET" --ssh --netfilter-mode=nodivert --advertise-exit-node
+          tailscale up --reset --authkey="$SECRET" --netfilter-mode=nodivert --advertise-exit-node
         '';
       };
     };
@@ -89,7 +89,6 @@ in {
   services.tailscale = {
     enable = true;
     extraSetFlags = [
-      "--ssh"
       "--netfilter-mode=nodivert"
       "--advertise-exit-node"
     ];

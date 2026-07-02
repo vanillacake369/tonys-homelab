@@ -98,7 +98,7 @@ spec:
 
               echo "[3/3] ensure user '$USER_USERNAME'"
               curl -sS -m 15 "$BASE/api/v1/users" -H "Authorization: Bearer $tok" -o /tmp/users
-              uid=$(tr '}' '\n' < /tmp/users | grep "\"username\":\"$USER_USERNAME\"" | j id | head -1)
+              uid=$(tr '}' '\n' < /tmp/users | grep "\"username\":\"$USER_USERNAME\"" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
               if [ -z "$uid" ]; then
                 ub=$(printf '{"username":"%s","name":"%s","email":"%s"}' "$USER_USERNAME" "$USER_NAME" "$USER_EMAIL")
                 curl -sS -m 15 -o /tmp/cu -X POST "$BASE/api/v1/users" \
@@ -115,7 +115,7 @@ spec:
               echo "  set $USER_USERNAME password"
               c=$(curl -sS -m 15 -o /tmp/sp -w '%{http_code}' -X POST "$BASE/api/v1/auth/reset-password" \
                 -H 'Content-Type: application/json' \
-                -d "$(printf '{"token":"%s","password":"%s"}' "$rtok" "$USER_PASSWORD")")
+                -d "$(printf '{"token":"%s","newPassword":"%s"}' "$rtok" "$USER_PASSWORD")")
               echo "  reset-password HTTP $c"
               case "$c" in 2*) echo "bootstrap complete"; exit 0 ;; *) cat /tmp/sp; echo "set password failed"; exit 1 ;; esac
           volumeMounts:

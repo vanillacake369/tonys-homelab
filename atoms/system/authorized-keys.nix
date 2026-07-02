@@ -7,22 +7,28 @@
   lib,
   ...
 }: let
-  # 파일이 있으면 읽어오고, 없으면 빈 리스트 반환 (안전장치)
+  # 파일이 있으면 줄 단위 공개키 목록으로 읽어오고, 없으면 빈 리스트 반환 (안전장치)
   readKey = file:
     if builtins.pathExists file
-    then [(lib.removeSuffix "\n" (builtins.readFile file))]
+    then
+      builtins.filter (key: key != "")
+      (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)))
     else [];
 
-  keys =
+  infraKeys =
     (readKey ../../secrets/limjihoon.pub)
     ++ (readKey ../../secrets/homelab-1.pub);
+
+  ipadHomelabKeys = readKey ../../secrets/ipad-homelab.pub;
 in {
   users.users = lib.mkMerge [
     {
-      root.openssh.authorizedKeys.keys = keys;
+      root.openssh.authorizedKeys.keys = infraKeys;
     }
     (lib.mkIf (config.node.user != "root") {
-      "${config.node.user}".openssh.authorizedKeys.keys = keys;
+      "${config.node.user}".openssh.authorizedKeys.keys =
+        infraKeys
+        ++ lib.optionals (config.node.hostType == "physical") ipadHomelabKeys;
     })
   ];
 }

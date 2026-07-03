@@ -8,6 +8,7 @@ metadata:
   #   restricted 프로파일과 충돌할 수 있어 baseline 으로 안전 마진을 둔다.
   #   restricted 는 warn/audit 로만 적용해 더 강한 자세를 지향점으로 남긴다.
   labels:
+    gateway.networking.k8s.io/route-access: homelab
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted

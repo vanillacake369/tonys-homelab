@@ -3,10 +3,10 @@ name: CI
 on:
     pull_request:
         branches: [main]
-        paths: ["**.nix", "flake.lock", ".github/**"]
+        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**"]
     push:
         branches: [main]
-        paths: ["**.nix", "flake.lock", ".github/**"]
+        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**"]
     merge_group:
 concurrency:
     group: ci-${{ github.ref }}
@@ -28,10 +28,5 @@ jobs:
             - uses: ./.github/actions/nix-setup
               with:
                 git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
-            - run: nix flake check --impure --no-build
-        # TODO :
-        # 이렇게 환경변수를 넘기는 방식보다
-        # 더 유연하게 처리되어야 함
-        # - env:
-        #     MICROVM_TARGETS: none
-        #   run: nix build .#nixosConfigurations.homelab.config.system.build.toplevel --impure --dry-run
+            - run: nix develop -c kyverno version
+            - run: nix develop -c just check

@@ -4,9 +4,9 @@ NixOS + libvirt + Colmena 기반 선언적 홈랩 인프라.
 물리 서버 위에 libvirt QEMU/KVM으로 Kubernetes 클러스터를 운영합니다.
 
 ```bash
-just deploy-all    # 물리호스트 → VM 순서로 전체 배포
+just deploy        # 물리호스트 → VM 순서로 전체 배포
 just ssh k8s-master-1  # VM SSH 접속
-just k8s-deploy    # K8s 클러스터 부트스트랩
+just k8s deploy    # K8s 클러스터 부트스트랩/수렴
 ```
 
 ## Table of Contents
@@ -121,15 +121,12 @@ Host 10.0.20.* k8s-master-* k8s-worker-*
 # 검증
 just check
 
-# 전체 배포 (호스트 → VM 순서)
-just deploy-all
+# 전체 배포 (호스트 -> VM 순서)
+just deploy
 
 # 특정 노드만 배포
-just deploy homelab-1
-just deploy k8s-master-1 k8s-worker-1
-
-# 빌드만 (적용 없음)
-just build
+just deploy node homelab-1
+just deploy node k8s-master-1 k8s-worker-1
 ```
 
 ## Operations
@@ -142,17 +139,23 @@ just ssh k8s-master-1     # VM (ProxyJump 자동)
 # VM 관리
 just vm start k8s-master-1
 just vm stop all
-just vm-status
+just vm status
 
 # 시스템 점검
-just status               # 전체 건강 상태
-just net                  # 네트워크 토폴로지
-just k8s-verify           # K8s 클러스터 상세 점검
+just k8s verify           # K8s 클러스터 상세 점검
+just flux status          # Flux 리소스 상태
+
+# 로컬/CI 검증
+just check                # 전체 guardrail
+just check k8s            # kustomize + kubeconform + kube-linter + Kyverno
+just check nix            # deadnix + statix 리포트 + alejandra + flake check
+just check docs           # 문서의 just 명령어 정합성 검사
 
 # K8s 클러스터
-just k8s-deploy           # clean → bootstrap → verify
-just k8s-bootstrap        # 초기 부트스트랩
-just k8s-clean            # 클러스터 리셋
+just k8s deploy           # bootstrap -> verify
+just k8s bootstrap        # 초기 부트스트랩
+CONFIRM_RESET=homelab just k8s clean        # 클러스터 리셋
+CONFIRM_RESET=homelab just k8s reset-deploy # reset -> bootstrap -> verify
 
 # 유지보수
 just gc                   # 전체 노드 가비지 컬렉션

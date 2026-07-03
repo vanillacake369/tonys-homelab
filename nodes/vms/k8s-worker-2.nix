@@ -11,9 +11,9 @@ in {
   node = {
     ip = net.ip;
     mac = net.mac;
-    role = "k8s-worker";
+    role = net.role;
     hostType = "vm";
-    parentHost = "homelab-1";
+    parentHost = net.parentHost;
   };
 
   boot.loader.grub = {
@@ -30,7 +30,7 @@ in {
     matchConfig.MACAddress = net.mac;
     address = ["${net.ip}/24"];
     networkConfig = {
-      Gateway = network.hosts.homelab-1.vlans.services.gateway;
+      Gateway = network.hosts.${net.parentHost}.vlans.${net.network}.gateway;
       DNS = network.dns;
     };
     linkConfig.RequiredForOnline = "routable";

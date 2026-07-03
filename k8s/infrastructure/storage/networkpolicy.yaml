@@ -9,6 +9,16 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
+  name: local-path-storage-default-deny
+  namespace: local-path-storage
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
   name: local-path-provisioner-default-deny
   namespace: local-path-storage
 spec:

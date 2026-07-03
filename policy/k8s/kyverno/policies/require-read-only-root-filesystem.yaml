@@ -1,0 +1,35 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-read-only-root-filesystem
+spec:
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  variables:
+    - name: podSpec
+      expression: "has(object.spec.jobTemplate) ? object.spec.jobTemplate.spec.template.spec : (has(object.spec.template) ? object.spec.template.spec : object.spec)"
+    - name: workloadNamespace
+      expression: "has(object.metadata.namespace) ? object.metadata.namespace : 'default'"
+    - name: bookorbitPostgres
+      expression: "object.kind == 'StatefulSet' && variables.workloadNamespace == 'bookorbit' && object.metadata.name == 'bookorbit-postgres'"
+    - name: platformController
+      expression: "variables.workloadNamespace in ['flux-system', 'kyverno', 'kube-system']"
+  validations:
+    - expression: "variables.platformController || variables.bookorbitPostgres || variables.podSpec.containers.all(container, has(container.securityContext) && has(container.securityContext.readOnlyRootFilesystem) && container.securityContext.readOnlyRootFilesystem == true)"
+      message: "containers must set securityContext.readOnlyRootFilesystem=true"
+    - expression: "variables.platformController || variables.bookorbitPostgres || !has(variables.podSpec.initContainers) || variables.podSpec.initContainers.all(container, has(container.securityContext) && has(container.securityContext.readOnlyRootFilesystem) && container.securityContext.readOnlyRootFilesystem == true)"
+      message: "init containers must set securityContext.readOnlyRootFilesystem=true"

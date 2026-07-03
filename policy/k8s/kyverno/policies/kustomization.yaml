@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - disallow-latest-images.yaml
+  - disallow-privileged-containers.yaml
+  - require-read-only-root-filesystem.yaml
+  - require-automount-service-account-token-false.yaml
+  - restrict-gateway-routes.yaml

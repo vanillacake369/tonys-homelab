@@ -6,6 +6,16 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
+  name: bookorbit-default-deny
+  namespace: bookorbit
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
   name: bookorbit-app
   namespace: bookorbit
 spec:

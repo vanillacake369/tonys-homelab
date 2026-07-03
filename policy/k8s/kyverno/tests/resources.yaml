@@ -1,0 +1,156 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latest-image
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: latest-image }
+  template:
+    metadata:
+      labels: { app: latest-image }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: nginx:latest
+          securityContext:
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privileged
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: privileged }
+  template:
+    metadata:
+      labels: { app: privileged }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: nginx:1.27
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: missing-read-only-rootfs
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: missing-read-only-rootfs }
+  template:
+    metadata:
+      labels: { app: missing-read-only-rootfs }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: nginx:1.27
+          securityContext: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bookorbit-postgres
+  namespace: bookorbit
+spec:
+  serviceName: bookorbit-postgres-headless
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          securityContext:
+            readOnlyRootFilesystem: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-path-provisioner
+  namespace: local-path-storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: local-path-provisioner }
+  template:
+    metadata:
+      labels: { app: local-path-provisioner }
+    spec:
+      containers:
+        - name: local-path-provisioner
+          image: rancher/local-path-provisioner:v0.0.32
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-path-provisioner
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: fake-local-path-provisioner }
+  template:
+    metadata:
+      labels: { app: fake-local-path-provisioner }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: local-path-provisioner
+          image: rancher/local-path-provisioner:v0.0.32
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: missing-automount
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: missing-automount }
+  template:
+    metadata:
+      labels: { app: missing-automount }
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.27
+          securityContext:
+            readOnlyRootFilesystem: true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: open-gateway
+  namespace: gateway
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

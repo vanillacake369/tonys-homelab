@@ -1,0 +1,61 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: homelab-guardrails
+policies:
+  - policies/disallow-latest-images.yaml
+  - policies/disallow-privileged-containers.yaml
+  - policies/require-read-only-root-filesystem.yaml
+  - policies/require-automount-service-account-token-false.yaml
+  - policies/restrict-gateway-routes.yaml
+resources:
+  - tests/resources.yaml
+results:
+  - policy: disallow-latest-images
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - default/latest-image
+    result: fail
+  - policy: disallow-privileged-containers
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - default/privileged
+    result: fail
+  - policy: require-read-only-root-filesystem
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - default/missing-read-only-rootfs
+    result: fail
+  - policy: require-read-only-root-filesystem
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - bookorbit/bookorbit-postgres
+    result: pass
+  - policy: disallow-privileged-containers
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - local-path-storage/local-path-provisioner
+    result: pass
+  - policy: disallow-privileged-containers
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - default/local-path-provisioner
+    result: fail
+  - policy: require-automount-service-account-token-false
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - default/missing-automount
+    result: fail
+  - policy: restrict-gateway-routes
+    isValidatingPolicy: true
+    kind: Gateway
+    resources:
+      - gateway/open-gateway
+    result: fail

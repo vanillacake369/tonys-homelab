@@ -1,0 +1,16 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-gateway-routes
+spec:
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["gateway.networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["gateways"]
+  validations:
+    - expression: "object.spec.listeners.all(listener, !has(listener.allowedRoutes) || !has(listener.allowedRoutes.namespaces) || !has(listener.allowedRoutes.namespaces.from) || listener.allowedRoutes.namespaces.from != 'All')"
+      message: "Gateway listeners must not allow routes from all namespaces"

@@ -10,3 +10,4 @@ labels:
 resources:
   - storage
   - networking
+  - kyverno

@@ -3,7 +3,7 @@
 #   gatewayClassName: cilium → Cilium 이 LoadBalancer Service 를 만들어 LB-IPAM 에서
 #   IP(.240 대역)를 받는다. HTTP :80 만 연다 — TLS 는 Tailscale Serve 가 종단한다
 #   (ts.net 은 cert-manager/ACME 발급 불가). 가비아 도메인 도입 시 HTTPS listener 추가.
-#   allowedRoutes from All → 다른 네임스페이스(bookorbit 등)의 HTTPRoute 를 붙일 수 있다.
+#   allowedRoutes 는 명시적으로 허용한 네임스페이스만 HTTPRoute 를 붙일 수 있다.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -17,4 +17,7 @@ spec:
       port: 80
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchLabels:
+              gateway.networking.k8s.io/route-access: homelab

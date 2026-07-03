@@ -76,8 +76,34 @@
     packages = forAllSystems (sys:
       {inherit (inputs.colmena.packages.${sys}) colmena;}
       // lib.optionalAttrs (sys == targetSystem) vmImages);
+
+    devShells = forAllSystems (sys: let
+      pkgs = import nixpkgs {
+        system = sys;
+      };
+    in {
+      default = pkgs.mkShell {
+        packages = with pkgs; [
+          actionlint
+          alejandra
+          deadnix
+          gitleaks
+          jq
+          kube-linter
+          kubeconform
+          kustomize
+          kyverno
+          shellcheck
+          statix
+          yamllint
+          yq-go
+        ];
+      };
+    });
+
+    tests = import ./tests {inherit lib nixosConfigurations;};
   in {
-    inherit packages nixosConfigurations targetSystem;
+    inherit packages devShells nixosConfigurations targetSystem;
 
     # 헬퍼함수를 통해
     # Host & VM 에 대한
@@ -91,7 +117,18 @@
     #   - nix run --impure .#colmena -- apply --on @{{ target }}
     # - 테스트/확인
     #   - nix run --impure .#colmena -- apply --dry-run --on @{{ target }}
-    tests = import ./tests {inherit lib nixosConfigurations;};
+    inherit tests;
+
+    checks = forAllSystems (sys: let
+      pkgs = import nixpkgs {system = sys;};
+    in {
+      contracts = pkgs.runCommand "homelab-contracts" {} ''
+        mkdir -p "$out"
+        cat > "$out/summary.json" <<'EOF'
+        ${builtins.toJSON tests.summary}
+        EOF
+      '';
+    });
 
     colmenaHive = hive;
 

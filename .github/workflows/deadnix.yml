@@ -8,11 +8,11 @@ on:
   merge_group:
 jobs:
   deadnix:
-    name: Dead Code Check
+    name: Nix Static Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/nix-setup
         with:
           git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
-      - run: nix-shell -p deadnix --run "deadnix --fail"
+      - run: nix develop -c just check nix

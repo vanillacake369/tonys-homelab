@@ -4,9 +4,10 @@ kubeadm + Cilium CNI 기반 K8s 클러스터 부트스트랩을 Ansible로 오�
 NixOS가 시스템 구성을 담당하고, Ansible은 K8s 초기화/조인/검증만 처리합니다.
 
 ```bash
-just k8s-deploy       # clean → bootstrap → verify (전체 수명주기)
-just k8s-bootstrap    # 초기 부트스트랩만
-just k8s-verify       # 클러스터 건강 점검
+just k8s deploy       # bootstrap -> verify
+CONFIRM_RESET=homelab just k8s reset-deploy # reset -> bootstrap -> verify
+just k8s bootstrap    # 초기 부트스트랩만
+just k8s verify       # 클러스터 건강 점검
 ```
 
 ## Table of Contents
@@ -55,9 +56,9 @@ flowchart TB
 network/topology.nix → ansible/inventory.nix → inventory.py → Ansible
 ```
 
-`inventory.nix`는 `topology.nix.vms`에서 VM 이름을 동적으로 발견하고,
-파일명 패턴(`k8s-master-*` / `k8s-worker-*`)으로 역할을 도출합니다.
-IP 프리픽스를 VLAN gateway와 매칭하여 `node_vlan`도 자동 결정합니다.
+`inventory.nix`는 `topology.nix.vms`에서 VM 이름과 role/cluster/network 필드를
+직접 읽어 그룹과 hostvars 를 생성합니다. 이름 패턴이나 IP 프리픽스 추론에
+의존하지 않습니다.
 
 **부트스트랩 순서:**
 
@@ -65,6 +66,13 @@ IP 프리픽스를 VLAN gateway와 매칭하여 `node_vlan`도 자동 결정합�
 2. API 안정화 대기 (15초)
 3. Secondary masters — `kubeadm join --control-plane` (throttle: 1)
 4. Workers — `kubeadm join`
+
+**Reset guard:**
+
+`just k8s clean` 과 `just k8s reset-deploy` 는 destructive reset 경로입니다.
+실행하려면 `CONFIRM_RESET=homelab` 를 지정해야 하며, cleanup 은 다음 상태를
+삭제합니다: `/etc/kubernetes`, `/var/lib/etcd`, `/var/lib/kubelet`,
+`/etc/cni/net.d`, `/etc/systemd/system/kubelet.service.d`.
 
 **관련 라이브러리:**
 - [kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/)

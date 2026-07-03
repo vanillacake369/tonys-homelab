@@ -6,4 +6,8 @@ if [ "${SKIP_LOCAL_CI:-}" = "1" ]; then
   exit 0
 fi
 
-scripts/check-ci-local
+if [ -n "${IN_NIX_SHELL:-}" ]; then
+  just check
+else
+  nix develop -c just check
+fi

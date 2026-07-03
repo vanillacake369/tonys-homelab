@@ -83,6 +83,7 @@
         CERT_KEY=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
         echo "${JOIN_CMD}|${CERT_KEY}"
       register: join_facts_raw
+      no_log: true
 
     - name: Propagate join credentials globally
       set_fact:
@@ -91,6 +92,7 @@
       delegate_to: "{{ item }}"
       delegate_facts: true
       with_items: "{{ groups['all'] }}"
+      no_log: true
 
   when:
     - node_role == 'master'

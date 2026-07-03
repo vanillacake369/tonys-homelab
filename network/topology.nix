@@ -34,10 +34,13 @@
 
   # Kubernetes 클러스터 네트워킹
   kubernetes = {
+    cluster = "homelab";
+    version = "1.35.3";
     pod_cidr = "10.244.0.0/16";
     service_cidr = "10.96.0.0/12";
     api_vip = "10.0.20.100";
     cilium_helm_version = "1.19.1";
+    lb_pool = "10.0.20.240/29";
   };
 
   # 물리 호스트 메타데이터
@@ -58,6 +61,10 @@
   # VM 레지스트리: 네트워크 할당 + 컴퓨트 리소스
   vms = {
     k8s-master-1 = {
+      role = "k8s-master";
+      cluster = "homelab";
+      network = "services";
+      parentHost = "homelab-1";
       host = "homelab-1";
       ip = "10.0.20.10";
       mac = "02:00:00:00:20:10";
@@ -67,6 +74,10 @@
       diskSize = 20;
     };
     k8s-worker-1 = {
+      role = "k8s-worker";
+      cluster = "homelab";
+      network = "services";
+      parentHost = "homelab-1";
       host = "homelab-1";
       ip = "10.0.20.21";
       mac = "02:00:00:00:20:21";
@@ -76,6 +87,10 @@
       diskSize = 40;
     };
     k8s-worker-2 = {
+      role = "k8s-worker";
+      cluster = "homelab";
+      network = "services";
+      parentHost = "homelab-1";
       host = "homelab-1";
       ip = "10.0.20.22";
       mac = "02:00:00:00:20:22";

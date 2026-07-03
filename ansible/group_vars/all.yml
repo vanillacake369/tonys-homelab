@@ -1,8 +1,8 @@
 # 2026.04 K8s Cluster Configuration (General Settings)
 # ------------------------------------------------------------
-# NOTE: pod_cidr and service_cidr are injected via dynamic inventory (network/topology.nix)
+# NOTE: pod_cidr, service_cidr, api_vip, k8s_version, and cilium_helm_version
+# are injected via dynamic inventory (network/topology.nix).
 
-k8s_version: "1.35.3"
 kube_vip_version: "1.1.0"
 
 # Networking (Cilium eBPF Optimization)
@@ -10,7 +10,7 @@ cilium_mtu: 1440
 cilium_kube_proxy_replacement: "true"
 
 # Helm / CNI Settings
-# NOTE: cilium_helm_version is injected from data/network.nix via dynamic inventory.
+# NOTE: cilium_helm_version is injected from network/topology.nix via dynamic inventory.
 cilium_namespace: "kube-system"
 
 # Ansible Controls

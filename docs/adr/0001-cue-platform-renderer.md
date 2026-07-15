@@ -2,7 +2,7 @@
 
 ## 상태
 
-채택. 단, Flux production 연결은 실제 `tonys-gis` Harbor digest 검증 후 활성화한다.
+채택. `tonys-gis` Harbor digest 검증 후 Flux production 연결까지 활성화했다.
 
 ## 조사 결과
 
@@ -14,9 +14,9 @@
 | Service | ClusterIP, http port, selector | port 8080 vs 3000 | 높음 | 단일 Service만 지원 |
 | HTTPRoute | `gateway/homelab` parentRef, backendRef | `bookorbit`는 catch-all, `tonys-gis`는 `/tonys-gis` prefix | 높음 | host는 intent에 두지만 현재 Gateway는 HTTP host match 미사용 |
 | NetworkPolicy | default deny, ingress entity, DNS egress | `bookorbit`는 DB/setup Job 규칙 필요 | 높음 for stateless | WebService는 ingress+DNS만 생성 |
-| Image | digest pin 선호, `latest` 금지 | `tonys-gis` digest 미확인 | 높음 | schema는 digest 필수 |
+| Image | digest pin 선호, `latest` 금지 | `tonys-gis`는 Harbor digest pin 사용 | 높음 | schema는 digest 필수 |
 | ConfigMap/Secret | Secret 값은 SOPS, 앱은 ref만 사용 | `bookorbit`는 ConfigMap/Secret/Job 필요 | 낮음 for first pass | `secretEnv` ref만 지원 |
-| Flux path | `k8s/clusters/homelab` 루트, infrastructure dependsOn | `bookorbit`는 전용 KS, apps KS는 비어 있음 | 중간 | generated adapter는 초안 |
+| Flux path | `k8s/clusters/homelab` 루트, infrastructure dependsOn | `bookorbit`는 전용 KS, generated apps는 공용 KS | 중간 | 앱 수 증가 전까지 단일 generated KS 유지 |
 | Generated 관례 | `flux-system`은 generated로 존재 | 플랫폼 generated 관례 없음 | 높음 | `k8s/generated/**` 신설 |
 
 ## 대안 비교
@@ -88,9 +88,10 @@ values로 이전 가능해야 한다.
 | 하나의 `generated-apps` KS | 단순, 앱 수가 적을 때 관리 쉬움 | 한 앱 장애가 wait 상태에 영향 | 채택 후보 |
 | 앱별 Flux KS | 격리와 헬스 추적이 좋음 | 앱마다 Flux YAML 반복 | 앱 수 증가 후 |
 
-초기에는 하나의 `generated-apps` KS가 충분하다. 단, 현재 `tonys-gis` digest가
-검증되지 않았으므로 production 루트에는 연결하지 않고 `gitops/flux`에 suspended
-adapter 초안만 둔다.
+초기에는 하나의 `generated-apps` KS가 충분하다. 현재 `tonys-gis`는 Harbor
+digest로 고정했고, `k8s/clusters/homelab/generated-apps.yaml`을 통해 production
+Flux 루트에 연결되어 있다. 앱 수가 늘거나 개별 health/rollback 격리가 필요해질
+때 앱별 Flux Kustomization을 재평가한다.
 
 ## Argo adapter 판단
 
@@ -102,8 +103,8 @@ suspend하거나 경로를 분리해야 한다.
 
 `tonys-gis` 기존 manifest 대비 의도된 차이:
 
-- image가 `:0.1.0` tag에서 `@sha256` digest contract로 바뀐다.
-- 실제 digest가 아직 미확인이라 placeholder를 사용한다.
+- image가 `:0.1.0` tag에서 Harbor `@sha256` digest contract로 바뀐다.
+- `generated-apps` Flux Kustomization이 `k8s/generated/apps` 경로를 적용한다.
 - YAML key order와 list formatting은 CUE export 기준으로 안정화된다.
 
 의도하지 않은 차이는 `just diff-generated`와 기존 manifest 비교로 제거한다.

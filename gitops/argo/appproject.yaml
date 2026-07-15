@@ -1,0 +1,20 @@
+---
+# Argo CD pilot adapter only. Do not apply while Flux owns the same resources.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab-generated-apps
+  namespace: argocd
+spec:
+  description: Generated homelab applications rendered from platform/apps/*.cue.
+  sourceRepos:
+    - https://github.com/vanillacake369/tonys-homelab.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

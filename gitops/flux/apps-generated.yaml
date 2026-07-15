@@ -1,0 +1,20 @@
+---
+# Flux adapter draft for generated platform applications.
+# Not referenced from k8s/clusters/homelab/kustomization.yaml yet.
+# Keep suspended until tonys-gis uses a verified Harbor image digest.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: generated-apps
+  namespace: flux-system
+spec:
+  suspend: true
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./k8s/generated/apps
+  prune: true
+  wait: true
+  dependsOn:
+    - name: infrastructure

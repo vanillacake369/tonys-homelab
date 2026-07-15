@@ -56,7 +56,7 @@
     allNodes = mkHost.hostNodes // mkVMs.vmNodes;
 
     # Host 구성 헬퍼함수인 mk-colmena
-    hive = import ./lib/mk-colmena.nix {inherit lib inputs targetSystem mkHost mkVMs;};
+    hive = import ./lib/mk-colmena.nix {inherit lib inputs targetSystem overlays mkHost mkVMs;};
 
     nixosConfigurations = lib.mapAttrs (_: nodeConfig:
       lib.nixosSystem {
@@ -86,11 +86,14 @@
         packages = with pkgs; [
           actionlint
           alejandra
+          cue
           deadnix
           gitleaks
+          just
           jq
           kube-linter
           kubeconform
+          kubectl
           kustomize
           kyverno
           shellcheck

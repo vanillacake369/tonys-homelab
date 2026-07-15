@@ -15,7 +15,7 @@
   homelabConfig = nixosConfigurations.homelab-1.config or null;
   vmFileNames = discoverNodes ../nodes/vms;
   vmTopologyNames = builtins.attrNames topology.vms;
-  k8sOverlayText = builtins.readFile ../atoms/k8s/k8s-tools.overlay.nix;
+  k8sOverlayText = builtins.readFile ../atoms/k8s/k8s-distro-compat.overlay.nix;
   readKeyLines = file:
     builtins.filter (key: key != "")
     (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)));

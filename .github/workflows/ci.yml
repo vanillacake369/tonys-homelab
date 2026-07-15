@@ -3,10 +3,10 @@ name: CI
 on:
     pull_request:
         branches: [main]
-        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**"]
+        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**", "platform/**", "scripts/**", "docs/**"]
     push:
         branches: [main]
-        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**"]
+        paths: ["**.nix", "flake.lock", ".github/**", "justfile", "k8s/**", "policy/**", "platform/**", "scripts/**", "docs/**"]
     merge_group:
 concurrency:
     group: ci-${{ github.ref }}

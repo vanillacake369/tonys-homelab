@@ -138,7 +138,7 @@ curl -fsS https://homelab-1.taild94cc1.ts.net/api/v1/health
 
 | 후보 | 판단 |
 | --- | --- |
-| `tonys-gis` 이미지를 Harbor로 push하고 digest를 Harbor 기준으로 고정 | node-local image보다 운영 재현성이 높다. |
+| `tonys-gis` 이미지 build/push/digest 갱신을 CI release job으로 자동화 | 현재 digest pin은 수동 갱신이므로 반복 배포 비용을 줄일 수 있다. |
 | MagicDNS smoke test를 CI 이후 별도 운영 probe로 자동화 | public runner에서 Tailscale 접근이 안 되면 self-hosted runner나 내부 cron이 필요하다. |
 | `bookorbit`를 CUE로 이전 | PVC, StatefulSet, setup Job 반복이 다른 앱에서도 확인될 때 진행한다. |
 | Argo CD pilot | Flux ownership을 끄거나 경로를 분리할 때만 적용한다. |

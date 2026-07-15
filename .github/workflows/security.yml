@@ -28,6 +28,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Check Nix flake inputs
-        uses: DeterminateSystems/flake-checker-action@main
+        uses: DeterminateSystems/flake-checker-action@de924abd783455e8429c858962b9e43062d19da1
         with:
           fail-mode: true

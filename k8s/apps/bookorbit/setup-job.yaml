@@ -105,7 +105,7 @@ spec:
               echo "  setup HTTP $c"
               case "$c" in
                 2*|403|409) : ;;
-                *) grep -qiE 'already|exists|complete|disabled' /tmp/r || { cat /tmp/r; echo "admin setup failed"; exit 1; } ;;
+                *) grep -qiE 'already|exists|complete|disabled' /tmp/r || { echo "admin setup failed"; exit 1; } ;;
               esac
 
               echo "[2/3] admin login"

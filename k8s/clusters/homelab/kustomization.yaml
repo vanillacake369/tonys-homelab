@@ -6,4 +6,3 @@ resources:
   - apps.yaml
   - bookorbit.yaml
   - generated-apps.yaml
-  - kyverno-policies.yaml

@@ -138,14 +138,14 @@ spec:
                 rtok=$(grep -o 'token=[a-f0-9]*' /tmp/rp | head -1 | cut -d= -f2)
                 echo "  $USER_USERNAME exists (id=$uid), issued reset"
               fi
-              [ -n "${rtok:-}" ] || { echo "no reset token"; cat /tmp/cu /tmp/rp 2>/dev/null; exit 1; }
+              [ -n "${rtok:-}" ] || { echo "no reset token in API response"; exit 1; }
 
               echo "  set $USER_USERNAME password"
               c=$(curl -sS -m 15 -o /tmp/sp -w '%{http_code}' -X POST "$BASE/api/v1/auth/reset-password" \
                 -H 'Content-Type: application/json' \
                 -d "$(printf '{"token":"%s","newPassword":"%s"}' "$rtok" "$USER_PASSWORD")")
               echo "  reset-password HTTP $c"
-              case "$c" in 2*) echo "bootstrap complete"; exit 0 ;; *) cat /tmp/sp; echo "set password failed"; exit 1 ;; esac
+              case "$c" in 2*) echo "bootstrap complete"; exit 0 ;; *) echo "set password failed"; exit 1 ;; esac
           volumeMounts:
             - name: tmp
               mountPath: /tmp

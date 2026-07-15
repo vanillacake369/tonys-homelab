@@ -619,7 +619,7 @@ _flux_bootstrap owner repo="tonys-homelab" branch="main":
     #!/usr/bin/env bash
     set -euo pipefail
     master_ip=$(just _master_ip)
-    ssh -F {{ ssh-config }} "$master_ip" "GITHUB_TOKEN=$GITHUB_TOKEN flux bootstrap github \
+    printf '%s\n' "$GITHUB_TOKEN" | ssh -F {{ ssh-config }} "$master_ip" "read -r GITHUB_TOKEN; export GITHUB_TOKEN; flux bootstrap github \
         --owner={{ owner }} \
         --repository={{ repo }} \
         --branch={{ branch }} \

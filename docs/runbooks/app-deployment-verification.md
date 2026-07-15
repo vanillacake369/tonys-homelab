@@ -15,14 +15,15 @@
   `10.0.20.10`에 도달할 수 없어 외부 요청은 `502` 또는 `503`이 된다.
 - VM 기동 후 `bookorbit`은 `1/1 Running`과 외부
   `/api/v1/health` `HTTP 200`까지 확인됐다.
-- `bookorbit` Flux Kustomization은 기존 실패 Job `bookorbit-setup`의
-  immutable `spec.template` 충돌 때문에 `Ready=False`일 수 있다.
-- `tonys-gis`는 generated manifest가 있으나 실제 Harbor digest가 placeholder이고
-  Flux root에 연결되어 있지 않다. 따라서 namespace가 없으면 아직 미배포 상태가
-  맞다.
-- Harbor registry manifest는 로컬 작업트리에 존재하지만 운영 클러스터에는
-  `harbor` namespace가 없을 수 있다. 이미지 push와 digest 고정 전에 먼저
-  registry 배포 상태를 확인해야 한다.
+- `bookorbit` Flux Kustomization은 `Ready=True`여야 한다. 과거에는 실패한
+  `bookorbit-setup` Job의 immutable `spec.template` 충돌로 `Ready=False`가 된 적이
+  있으므로 같은 메시지가 재발하면 아래 분기표를 따른다.
+- `tonys-gis`는 `platform/apps/tonys-gis.cue`를 SSoT로 하고,
+  `k8s/generated/apps/tonys-gis` 생성물을 `generated-apps` Flux Kustomization이
+  production에 적용한다.
+- `tonys-gis` 이미지는
+  `harbor.home.arpa/tonys-gis/tonys-gis@sha256:cbae25cb11b4729d4e15f9f2885fbcac0bf787e1df791e5b8c541be4e6e3194c`
+  로 고정되어 있다.
 - Docker CLI/daemon이 없는 환경은 지원 대상이다. 다만 로컬 이미지 build는
   Podman machine이 정상 기동되어야 하며, macOS에서 Buildah 단독 실행은 rootless
   mount/image store 제약 때문에 표준 경로로 보지 않는다.
@@ -164,23 +165,23 @@ ssh -F .cache/ssh-config k8s-master-1 \
   'kubectl get ns tonys-gis; kubectl -n tonys-gis get pods,deploy,svc,httproute,sa,secret -o wide'
 ```
 
-namespace가 없으면 아직 배포되지 않은 상태다. generated 경로로 전환하려면
-다음 순서를 지킨다.
+namespace가 없거나 `generated-apps` Flux Kustomization이 없으면 production 연결이
+깨진 상태다. intent 또는 renderer를 바꿨다면 다음 순서를 지킨다.
 
 ```bash
 just check-app tonys-gis
 just check-generated
 ```
 
-운영 전환 전 필수 조건:
+운영 전환 필수 조건:
 
 - Harbor가 배포되어 있고 `harbor.home.arpa`가 cluster node와 developer machine에서
   해석된다.
 - Harbor project `tonys-gis`와 robot account가 존재한다.
 - `tonys-gis` namespace에 `harbor-tonys-gis-pull` image pull secret이 존재한다.
 - `platform/apps/tonys-gis.cue`의 digest가 실제 pushed image digest다.
-- `gitops/flux/apps-generated.yaml`이 `k8s/clusters/homelab` 아래 production
-  Kustomization으로 연결되고 `suspend: false`다.
+- `k8s/clusters/homelab/generated-apps.yaml`이 production Kustomization으로
+  연결되고 `suspend: false`다.
 
 이미지 digest 조회 예시:
 

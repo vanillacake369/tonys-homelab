@@ -399,7 +399,13 @@ _check_secrets:
 [private]
 _check_docs:
     #!/usr/bin/env bash
-    docs=(README.md ansible/README.md k8s/README.md k8s/docs/bookorbit-onboarding.md)
+    docs=(
+        README.md
+        ansible/README.md
+        k8s/README.md
+        k8s/docs/bookorbit-onboarding.md
+        docs/runbooks/magicdns-gitops-onboarding.md
+    )
     allowed='^(check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
     legacy='just (check-(ci|nix|k8s|yaml|shell|actions|secrets)|deploy-(host|vm|node|all)|vm-(build|provision|start|stop|restart|destroy|cleanup|sync|status)|k8s-(deploy|reset-deploy|bootstrap|clean|verify)|flux-(bootstrap|status|reconcile)|status|net|build)\b'
 

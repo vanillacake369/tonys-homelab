@@ -5,4 +5,5 @@ resources:
   - infrastructure.yaml
   - apps.yaml
   - bookorbit.yaml
+  - generated-apps.yaml
   - kyverno-policies.yaml

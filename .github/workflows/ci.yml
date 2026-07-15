@@ -28,5 +28,4 @@ jobs:
             - uses: ./.github/actions/nix-setup
               with:
                 git-crypt-key: ${{ secrets.GIT_CRYPT_KEY }}
-            - run: nix develop -c kyverno version
             - run: nix develop -c just check

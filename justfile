@@ -134,6 +134,34 @@ flux action="status" *args:
             ;;
     esac
 
+# Render one platform app from platform/apps/*.cue into k8s/generated/apps/<app>.
+render app="${APP:-tonys-gis}":
+    ./scripts/platform-render.sh render "{{ app }}"
+
+# Render all platform apps.
+render-all:
+    ./scripts/platform-render.sh render-all
+
+# Check one platform app render, validation, negative fixtures, and determinism.
+check-app app="${APP:-tonys-gis}":
+    ./scripts/platform-render.sh check "{{ app }}"
+
+# Check all platform apps.
+check-all:
+    ./scripts/platform-render.sh check-all
+
+# Verify committed generated output is up to date.
+check-generated:
+    ./scripts/platform-render.sh check-generated
+
+# Show generated output drift.
+diff-generated:
+    ./scripts/platform-render.sh diff-generated
+
+# Remove generated platform output.
+clean-generated:
+    ./scripts/platform-render.sh clean-generated
+
 # Connect to node managed by colmena using generated SSH config.
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
@@ -193,6 +221,7 @@ _check_k8s:
         k8s/clusters/homelab
         k8s/infrastructure
         k8s/apps/bookorbit
+        k8s/generated/apps
     )
 
     run() {
@@ -277,6 +306,7 @@ _check_k8s:
 
     for rendered in "${rendered_files[@]}"; do
         require_default_deny bookorbit "$rendered"
+        require_default_deny tonys-gis "$rendered"
         require_default_deny local-path-storage "$rendered"
         require_flux_root "$rendered"
     done
@@ -370,7 +400,7 @@ _check_secrets:
 _check_docs:
     #!/usr/bin/env bash
     docs=(README.md ansible/README.md k8s/README.md k8s/docs/bookorbit-onboarding.md)
-    allowed='^(check|deploy|vm|k8s|flux|ssh|gc|update|install-hooks)$'
+    allowed='^(check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
     legacy='just (check-(ci|nix|k8s|yaml|shell|actions|secrets)|deploy-(host|vm|node|all)|vm-(build|provision|start|stop|restart|destroy|cleanup|sync|status)|k8s-(deploy|reset-deploy|bootstrap|clean|verify)|flux-(bootstrap|status|reconcile)|status|net|build)\b'
 
     if rg -n "$legacy" "${docs[@]}"; then

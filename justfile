@@ -260,7 +260,7 @@ _check_k8s:
         if ! yq ea 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/v1" and .kind == "Kustomization" and .metadata.name == "flux-system") | .metadata.name' "$rendered" | grep -qx flux-system; then
             return 0
         fi
-        for name in infrastructure apps bookorbit kyverno-policies; do
+        for name in infrastructure apps bookorbit generated-apps; do
             if ! name="$name" yq ea 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/v1" and .kind == "Kustomization" and .metadata.name == strenv(name)) | .metadata.name' "$rendered" | grep -qx "$name"; then
                 echo "Flux root is missing Kustomization/$name" >&2
                 missing=1

@@ -10,6 +10,7 @@
   lib,
   inputs,
   targetSystem,
+  overlays,
   mkHost,
   mkVMs,
 }: let
@@ -53,6 +54,7 @@ in
         nixpkgs = import inputs.nixpkgs {
           system = targetSystem;
           config.allowUnfree = true;
+          inherit overlays;
         };
         # 모든 노드에 주입될 공통 인자
         specialArgs = {

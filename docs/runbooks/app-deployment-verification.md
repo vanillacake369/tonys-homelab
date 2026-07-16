@@ -37,14 +37,14 @@
 | manifest 검증 | `kustomize`, `kubeconform`, `kyverno`, `yq` | `kubectl apply --dry-run=server` | server-side dry-run은 클러스터 접근이 필요하다. |
 | `tonys-gis` 렌더링 | `cue`, `just render`, `just check-app` | 없음 | generated output은 직접 수정하지 않는다. |
 | 이미지 build/push | `podman` | `buildah` | Docker Desktop 제거 환경을 기본으로 둔다. |
-| registry digest 조회 | `crane digest` | `skopeo inspect docker://...`, `regctl image digest` | `skopeo`의 `docker://`는 Docker daemon이 아니라 registry transport다. |
+| registry digest 조회 | `crane digest` | `skopeo inspect docker://...`, `regctl image digest` | Docker 제거 환경에서는 `crane`을 우선한다. |
 | 외부 접근 확인 | `curl` | 브라우저 | Tailscale MagicDNS 경로를 확인한다. |
 
 ## 로컬 container runtime 확인
 
-Docker 패키지를 제거한 상태에서 `skopeo inspect docker://...`를 사용하는 것은
-문제가 아니다. 여기서 `docker://`는 Docker daemon이 아니라 OCI/Docker registry
-transport 이름이다.
+Docker 패키지를 제거한 상태에서는 `crane digest`를 우선 사용한다.
+`skopeo inspect docker://...`의 `docker://`는 Docker daemon이 아니라
+OCI/Docker registry transport 이름이지만, 로컬 운영 표준 경로에서는 필수가 아니다.
 
 이미지 build/push의 기준 경로는 Podman이다.
 
@@ -187,13 +187,9 @@ just check-generated
 
 ```bash
 crane digest harbor.home.arpa/tonys-gis/tonys-gis:<tag>
-skopeo inspect docker://harbor.home.arpa/tonys-gis/tonys-gis:<tag> \
-  | jq -r .Digest
 ```
 
-`skopeo inspect docker://...`의 `docker://`는 Docker daemon 의존성이 아니라
-container registry transport 이름이다. Docker CLI/daemon을 제거한 환경에서도
-registry 접근 권한과 DNS/CA가 맞으면 동작한다.
+`skopeo inspect docker://...`는 필요할 때만 보조로 사용한다.
 
 외부 확인:
 

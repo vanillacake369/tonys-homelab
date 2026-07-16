@@ -24,14 +24,14 @@ Flux가 소비한다.
 
 | 목적 | 도구 | 비고 |
 | --- | --- | --- |
-| 로컬 검증 | `nix develop`, `just check all` | CI와 같은 진입점으로 맞춘다. |
-| GitHub Actions 확인 | `gh run list`, `gh run view --log-failed` | 실패 로그를 먼저 본 뒤 수정한다. |
+| 로컬 검증 | `nix develop`, `just ci` | CI와 같은 진입점으로 맞춘다. |
+| GitHub Actions 확인 | 비활성 | 이전 workflow는 `.github/workflows.disabled/`에 보존한다. |
 | 클러스터 접근 | `just ssh k8s-master-1` 또는 `ssh -F .cache/ssh-config k8s-master-1` | 로컬 kubeconfig가 없어도 검증 가능하다. |
 | Flux 수렴 | `just flux status`, `just flux reconcile` | 필요할 때만 강제 reconcile한다. |
 | 외부 검증 | `curl` | HTTP status와 응답 body를 같이 본다. |
 
-Docker CLI/daemon은 필수 경로가 아니다. `skopeo inspect docker://...`의
-`docker://`는 Docker daemon이 아니라 registry transport 이름이다.
+Docker CLI/daemon은 필수 경로가 아니다. Registry digest 조회는 `crane digest`를
+우선 사용하고, `skopeo inspect docker://...`는 보조 옵션으로만 둔다.
 
 ## 배포 루프
 
@@ -39,7 +39,7 @@ Docker CLI/daemon은 필수 경로가 아니다. `skopeo inspect docker://...`�
 
 ```bash
 git status --short
-just check all
+just ci
 ```
 
 2. `tonys-gis` intent를 바꿨다면 생성물도 갱신한다.
@@ -58,11 +58,10 @@ git commit -m "feat(platform): update tonys gis deployment"
 git push
 ```
 
-4. GitHub Actions가 모두 통과할 때까지 확인한다.
+4. 로컬 CI가 통과하는지 확인한다.
 
 ```bash
-gh run list --branch main --limit 10
-gh run view --log-failed
+just ci
 ```
 
 실패하면 로그의 첫 번째 concrete error를 기준으로 수정한다. 같은 명령을 반복하기
@@ -72,7 +71,7 @@ gh run view --log-failed
 
 ```bash
 just flux status
-just flux reconcile
+CONFIRM_DEPLOY=homelab just cd gitops
 ssh -F .cache/ssh-config k8s-master-1 "kubectl get kustomizations -A"
 ```
 
@@ -123,7 +122,7 @@ match가 깨진 상태다.
 ```bash
 git revert <bad-commit>
 git push
-just flux reconcile
+CONFIRM_DEPLOY=homelab just cd gitops
 ```
 
 `tonys-gis`만 급히 내릴 때는 `k8s/clusters/homelab/generated-apps.yaml` 연결을

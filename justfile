@@ -400,7 +400,9 @@ _check_shell:
 
     mapfile -t shell_files < <(
         if [ "${#shell_roots[@]}" -gt 0 ]; then
-            find "${shell_roots[@]}" -maxdepth 2 -type f | sort
+            find "${shell_roots[@]}" -maxdepth 2 -type f \
+                -not -path '.husky/_/*' \
+                -not -path '.husky/_' | sort
         fi
     )
 

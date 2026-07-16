@@ -32,7 +32,82 @@ ssh-config := ```
   echo "$config_file"
 ```
 
-# Run local guard checks. Targets: all, nix, k8s, yaml, shell, actions, secrets, docs.
+# Run the local CI-equivalent checks.
+ci target="all":
+    just check "{{ target }}"
+
+# Plan a local deployment without applying changes. Targets: gitops, hosts, vms, node.
+cd-plan target *nodes:
+    #!/usr/bin/env bash
+    case "{{ target }}" in
+        gitops)
+            just ci
+            echo "Target: gitops"
+            echo "Action: render and validate Flux-owned manifests only."
+            just check k8s
+            echo "Plan OK. To reconcile via Flux: CONFIRM_DEPLOY=homelab just cd gitops"
+            ;;
+        hosts|host)
+            just ci
+            just _deploy_host_plan
+            ;;
+        vms|vm)
+            just ci
+            just _deploy_vm_plan
+            ;;
+        node|nodes)
+            if [ -z "{{ nodes }}" ]; then
+                echo "Usage: just cd-plan node <node> [node...]" >&2
+                exit 2
+            fi
+            just ci
+            just _deploy_nodes_plan {{ nodes }}
+            ;;
+        *)
+            echo "Unknown CD target: {{ target }}" >&2
+            echo "Expected one of: gitops, hosts, vms, node" >&2
+            exit 2
+            ;;
+    esac
+
+# Apply a local deployment after CI and an explicit confirmation.
+cd target *nodes:
+    #!/usr/bin/env bash
+    if [ "${CONFIRM_DEPLOY:-}" != "homelab" ]; then
+        echo "Refusing deploy without explicit confirmation." >&2
+        echo "Run: CONFIRM_DEPLOY=homelab just cd {{ target }} {{ nodes }}" >&2
+        exit 2
+    fi
+
+    case "{{ target }}" in
+        gitops)
+            just cd-plan gitops
+            just flux reconcile
+            ;;
+        hosts|host)
+            just cd-plan hosts
+            just deploy hosts
+            ;;
+        vms|vm)
+            just cd-plan vms
+            just deploy vms
+            ;;
+        node|nodes)
+            if [ -z "{{ nodes }}" ]; then
+                echo "Usage: CONFIRM_DEPLOY=homelab just cd node <node> [node...]" >&2
+                exit 2
+            fi
+            just cd-plan node {{ nodes }}
+            just deploy node {{ nodes }}
+            ;;
+        *)
+            echo "Unknown CD target: {{ target }}" >&2
+            echo "Expected one of: gitops, hosts, vms, node" >&2
+            exit 2
+            ;;
+    esac
+
+# Run local guard checks. Targets: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks.
 check target="all":
     #!/usr/bin/env bash
     if [ -z "${IN_NIX_SHELL:-}" ]; then
@@ -41,7 +116,7 @@ check target="all":
 
     case "{{ target }}" in
         all)
-            for item in nix k8s yaml shell actions secrets docs; do
+            for item in nix k8s yaml shell actions secrets docs hooks; do
                 printf '\n==> just check %s\n' "$item"
                 just check "$item"
             done
@@ -54,9 +129,10 @@ check target="all":
         actions) just _check_actions ;;
         secrets) just _check_secrets ;;
         docs) just _check_docs ;;
+        hooks) just _check_hooks ;;
         *)
             echo "Unknown check target: {{ target }}" >&2
-            echo "Expected one of: all, nix, k8s, yaml, shell, actions, secrets, docs" >&2
+            echo "Expected one of: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks" >&2
             exit 2
             ;;
     esac
@@ -182,7 +258,8 @@ update:
 
 # Install repository-managed git hooks locally.
 install-hooks:
-    git config core.hooksPath .githooks
+    npm ci
+    npx --no-install husky
 
 [private]
 _colmena +args:
@@ -315,7 +392,7 @@ _check_k8s:
 _check_shell:
     #!/usr/bin/env bash
     shell_roots=()
-    for candidate in scripts .githooks; do
+    for candidate in scripts .githooks .husky; do
         if [ -d "$candidate" ]; then
             shell_roots+=("$candidate")
         fi
@@ -345,7 +422,13 @@ _check_yaml:
 
 [private]
 _check_actions:
-    actionlint .github/workflows/*.yml
+    #!/usr/bin/env bash
+    mapfile -t workflows < <(find .github/workflows .github/workflows.disabled -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
+    if [ "${#workflows[@]}" -eq 0 ]; then
+        echo "No GitHub workflow YAML files found."
+        exit 0
+    fi
+    actionlint "${workflows[@]}"
 
 [private]
 _check_secrets:
@@ -406,7 +489,7 @@ _check_docs:
         k8s/docs/bookorbit-onboarding.md
         docs/runbooks/magicdns-gitops-onboarding.md
     )
-    allowed='^(check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
+    allowed='^(ci|cd|cd-plan|check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
     legacy='just (check-(ci|nix|k8s|yaml|shell|actions|secrets)|deploy-(host|vm|node|all)|vm-(build|provision|start|stop|restart|destroy|cleanup|sync|status)|k8s-(deploy|reset-deploy|bootstrap|clean|verify)|flux-(bootstrap|status|reconcile)|status|net|build)\b'
 
     if rg -n "$legacy" "${docs[@]}"; then
@@ -423,10 +506,29 @@ _check_docs:
     done
 
 [private]
+_check_hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npm ci --ignore-scripts
+    printf '%s\n' 'fix(cni): validate local commit convention' | npx --no-install commitlint
+    if printf '%s\n' 'bad commit message' | npx --no-install commitlint >/tmp/tonys-homelab-commitlint.err 2>&1; then
+        echo "commitlint accepted an invalid sample" >&2
+        cat /tmp/tonys-homelab-commitlint.err >&2
+        exit 1
+    fi
+
+[private]
 _deploy_host:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
     just _colmena apply --on "$targets" --verbose
+
+[private]
+_deploy_host_plan:
+    #!/usr/bin/env bash
+    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
+    echo "Target: hosts ($targets)"
+    just _colmena apply --dry-run --on "$targets" --verbose
 
 [private]
 _deploy_vm:
@@ -435,8 +537,22 @@ _deploy_vm:
     just _colmena apply --on "$targets" --verbose
 
 [private]
+_deploy_vm_plan:
+    #!/usr/bin/env bash
+    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
+    echo "Target: vms ($targets)"
+    just _colmena apply --dry-run --on "$targets" --verbose
+
+[private]
 _deploy_nodes +nodes:
     just _colmena apply --on "$(echo "{{ nodes }}" | tr ' ' ',')" --verbose
+
+[private]
+_deploy_nodes_plan +nodes:
+    #!/usr/bin/env bash
+    targets="$(echo "{{ nodes }}" | tr ' ' ',')"
+    echo "Target: nodes ($targets)"
+    just _colmena apply --dry-run --on "$targets" --verbose
 
 [private]
 _vm_build *vms:

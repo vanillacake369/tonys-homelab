@@ -5,6 +5,12 @@ result-*
 # Auto-generated SSH config (just _gen-ssh-config)
 .cache/
 
+# Node tooling for repository hooks
+node_modules/
+npm-debug.log*
+.husky/_/
+.npm/
+
 # Hardware configuration (machine-specific)
 hosts/*/hardware-configuration.nix
 
@@ -12,6 +18,8 @@ hosts/*/hardware-configuration.nix
 *.key
 *.pem
 secrets/vm-master.key
+kubeconfig
+kubeconfig.*
 # lib/homelab-constants.nix
 
 # Editor files

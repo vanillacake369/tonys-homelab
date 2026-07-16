@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+if [ "${SKIP_LOCAL_CI:-}" = "1" ]; then
+  echo "SKIP_LOCAL_CI=1 set; skipping local CI checks."
+  exit 0
+fi
+
+just ci

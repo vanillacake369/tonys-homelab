@@ -1,0 +1,14 @@
+{
+  "name": "tonys-homelab-repository-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "husky",
+    "commitlint": "commitlint --edit"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "21.2.1",
+    "@commitlint/config-conventional": "21.2.0",
+    "husky": "9.1.7"
+  }
+}

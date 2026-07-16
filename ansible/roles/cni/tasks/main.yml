@@ -75,6 +75,13 @@
         masquerade: true
       endpointRoutes:
         enabled: true
+      gatewayAPI:
+        enabled: true
+      l2announcements:
+        enabled: true
+      k8sClientRateLimit:
+        qps: 20
+        burst: 40
   register: cilium_install
   until: cilium_install is succeeded
   retries: 5 # [추가] 일시적 통신 실패 대비 재시도

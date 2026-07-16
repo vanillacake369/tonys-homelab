@@ -1,0 +1,69 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: harbor
+  namespace: flux-system
+spec:
+  interval: 30m
+  targetNamespace: harbor
+  chart:
+    spec:
+      chart: harbor
+      version: 1.18.0
+      sourceRef:
+        kind: HelmRepository
+        name: harbor
+        namespace: flux-system
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    externalURL: https://harbor.home.arpa
+    existingSecretAdminPassword: harbor-admin
+    existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD
+    expose:
+      type: route
+      tls:
+        enabled: false
+      route:
+        hosts:
+          - harbor.home.arpa
+        parentRefs:
+          - name: homelab
+            namespace: gateway
+            sectionName: http
+    persistence:
+      enabled: true
+      resourcePolicy: keep
+      persistentVolumeClaim:
+        registry:
+          storageClass: local-path
+          accessMode: ReadWriteOnce
+          size: 50Gi
+        jobservice:
+          jobLog:
+            storageClass: local-path
+            accessMode: ReadWriteOnce
+            size: 5Gi
+        database:
+          storageClass: local-path
+          accessMode: ReadWriteOnce
+          size: 10Gi
+        redis:
+          storageClass: local-path
+          accessMode: ReadWriteOnce
+          size: 5Gi
+        trivy:
+          storageClass: local-path
+          accessMode: ReadWriteOnce
+          size: 10Gi
+    trivy:
+      enabled: true
+    portal:
+      replicas: 1
+    core:
+      replicas: 1
+    jobservice:
+      replicas: 1
+    registry:
+      replicas: 1

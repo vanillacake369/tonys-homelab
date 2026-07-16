@@ -6,7 +6,8 @@
     ../../atoms/k8s/cni-cilium.nix
     ../../atoms/k8s/k8s-distro-compat.nix
   ];
-  # Master-only operator tools. Common K8s runtime tools live in k8s-distro-compat.nix.
+  # Master-only operator tools.
+  # Common K8s runtime tools live in k8s-distro-compat.nix.
   environment.systemPackages = with pkgs; [
     k9s
     kubeconform

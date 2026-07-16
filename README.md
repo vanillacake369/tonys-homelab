@@ -119,7 +119,7 @@ Host 10.0.20.* k8s-master-* k8s-worker-*
 
 ```bash
 # 검증
-just check
+just ci
 
 # 전체 배포 (호스트 -> VM 순서)
 just deploy
@@ -147,12 +147,15 @@ just flux status          # Flux 리소스 상태
 
 # 로컬/CI 검증
 just check                # 전체 guardrail
+just ci                   # 로컬 CI-equivalent entrypoint
+just cd-plan gitops       # Flux reconcile 전 render/validation plan
 just check k8s            # kustomize + kubeconform + kube-linter + Kyverno
 just check nix            # deadnix + statix 리포트 + alejandra + flake check
 just check docs           # 문서의 just 명령어 정합성 검사
 
 # K8s 클러스터
 just k8s deploy           # bootstrap -> verify
+CONFIRM_DEPLOY=homelab just cd gitops # Flux ownership을 유지한 reconcile
 just k8s bootstrap        # 초기 부트스트랩
 CONFIRM_RESET=homelab just k8s clean        # 클러스터 리셋
 CONFIRM_RESET=homelab just k8s reset-deploy # reset -> bootstrap -> verify

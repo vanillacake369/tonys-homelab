@@ -16,15 +16,25 @@
   vmFileNames = discoverNodes ../nodes/vms;
   vmTopologyNames = builtins.attrNames topology.vms;
   k8sOverlayText = builtins.readFile ../atoms/k8s/k8s-distro-compat.overlay.nix;
+  lbIpPoolText = builtins.readFile ../deploy/k8s/infrastructure/networking/lb-ippool.yaml;
+  bookorbitWorkloadTexts = map builtins.readFile [
+    ../deploy/k8s/apps/bookorbit/deployment.yaml
+    ../deploy/k8s/apps/bookorbit/postgres-statefulset.yaml
+    ../deploy/k8s/apps/bookorbit/setup-job.yaml
+  ];
   readKeyLines = file:
     builtins.filter (key: key != "")
     (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)));
   ipadHomelabKeys = readKeyLines ../secrets/ipad-homelab.pub;
 
   unique = values: builtins.length values == builtins.length (lib.unique values);
-  requiredVmFields = ["ip" "mac" "tapId" "host" "parentHost" "role" "cluster" "network" "mem" "vcpu" "diskSize"];
+  requiredVmFields = ["ip" "mac" "tapId" "parentHost" "role" "cluster" "network" "mem" "vcpu" "diskSize"];
   allVmsHaveField = field: builtins.all (vm: builtins.hasAttr field vm) (builtins.attrValues topology.vms);
   vmNodeConfig = name: nixosConfigurations.${name}.config.node;
+  localPath = topology.storage.localPath;
+  localPathNodeLabelArg = "--node-labels=${lib.concatStringsSep "," (lib.mapAttrsToList (name: value: "${name}=${value}") localPath.nodeSelector)}";
+  localPathSelectorYaml = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: "        ${name}: ${value}") localPath.nodeSelector);
+  kubeletEnvironment = name: nixosConfigurations.${name}.config.systemd.services.kubelet.serviceConfig.Environment or [];
 
   extractOverlayVersion = let
     matches = builtins.match ".*version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\";.*" k8sOverlayText;
@@ -62,14 +72,26 @@
     (assert' "topology: cilium version is 1.19.x" (lib.hasPrefix "1.19" topology.kubernetes.cilium_helm_version))
     (assert' "topology: k8s version matches nix overlay" (topology.kubernetes.version == extractOverlayVersion))
     (assert' "topology: k8s version exported to ansible inventory" (inventory.all.vars.k8s_version == topology.kubernetes.version))
+    (assert' "topology: lb pool matches Cilium LB-IPAM manifest" (lib.hasInfix "cidr: ${topology.kubernetes.lb_pool}" lbIpPoolText))
+    (assert' "topology: local-path data nodes exist" (builtins.all (name: builtins.hasAttr name topology.vms) localPath.dataNodes))
+    (assert' "topology: local-path data nodes are workers" (builtins.all (name: topology.vms.${name}.role == "k8s-worker") localPath.dataNodes))
+    (assert' "topology: local-path data nodes get kubelet labels" (builtins.all (name:
+      builtins.elem "KUBELET_TOPOLOGY_ARGS=${localPathNodeLabelArg}" (kubeletEnvironment name))
+    localPath.dataNodes))
+    (assert' "topology: non-storage nodes do not get local-path kubelet labels" (builtins.all (name:
+      builtins.elem name localPath.dataNodes || !(builtins.elem "KUBELET_TOPOLOGY_ARGS=${localPathNodeLabelArg}" (kubeletEnvironment name)))
+    vmTopologyNames))
+    (assert' "topology: BookOrbit workloads target local-path node pool" (builtins.all (text: lib.hasInfix localPathSelectorYaml text) bookorbitWorkloadTexts))
     (assert' "topology: vms have required fields" (builtins.all allVmsHaveField requiredVmFields))
     (assert' "topology: VM IPs are unique" (unique (map (vm: vm.ip) (builtins.attrValues topology.vms))))
     (assert' "topology: VM MACs are unique" (unique (map (vm: vm.mac) (builtins.attrValues topology.vms))))
     (assert' "topology: VM tap IDs are unique" (unique (map (vm: vm.tapId) (builtins.attrValues topology.vms))))
     (assert' "topology: hosts have required fields" (builtins.all (h: h ? ip && h ? user) (builtins.attrValues topology.hosts)))
     (assert' "topology: VM parent hosts exist" (builtins.all (vm: builtins.hasAttr vm.parentHost topology.hosts) (builtins.attrValues topology.vms)))
-    (assert' "topology: VM legacy host matches parentHost" (builtins.all (vm: vm.host == vm.parentHost) (builtins.attrValues topology.vms)))
     (assert' "topology: VM networks exist on parent hosts" (builtins.all (vm: builtins.hasAttr vm.network topology.hosts.${vm.parentHost}.vlans) (builtins.attrValues topology.vms)))
+    (assert' "topology: vmsForHost projects by parentHost" (builtins.all (hostName:
+      builtins.all (vm: vm.parentHost == hostName) (builtins.attrValues (topology.vmsForHost hostName)))
+    (builtins.attrNames topology.hosts)))
     (assert' "topology: NixOS VM node contracts match topology" (builtins.all (name: let
       vm = topology.vms.${name};
       node = vmNodeConfig name;

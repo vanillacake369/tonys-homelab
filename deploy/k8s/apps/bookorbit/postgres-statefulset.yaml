@@ -20,9 +20,9 @@ spec:
         app.kubernetes.io/component: postgres
     spec:
       automountServiceAccountToken: false
-      # 앱과 같은 노드에 둔다(local-path RWO 바인딩 정합).
+      # 앱과 같은 local-path data node pool에 둔다(RWO 바인딩 정합).
       nodeSelector:
-        kubernetes.io/hostname: k8s-worker-1
+        homelab.tonys.dev/storage: local-path
       # postgres 이미지의 entrypoint 가 socket/tmp/PGDATA 에 쓰므로
       #   readOnlyRootFilesystem 은 false 로 둔다(§5b 의 문서화된 예외).
       # 대신 비-root(uid 999) + drop ALL + fsGroup 으로 권한을 최소화한다.

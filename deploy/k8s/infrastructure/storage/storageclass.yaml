@@ -1,6 +1,6 @@
 # 클러스터 기본 StorageClass.
 #   - WaitForFirstConsumer : 소비 pod 가 처음 스케줄된 노드에 PV 를 바인딩한다
-#     (app↔DB 를 k8s-worker-1 에 co-locate 하기 위함).
+#     (app↔DB 를 local-path data node pool에 co-locate 하기 위함).
 #   - Retain               : PVC 삭제 시에도 데이터를 보존한다(아직 백업이 없는 dev 단계).
 # is-default-class 로 클러스터 기본 SC 가 된다. 다른 default SC 가 있으면 바인딩이
 #   모호해지므로, 적용 전 확인한다: kubectl get storageclass

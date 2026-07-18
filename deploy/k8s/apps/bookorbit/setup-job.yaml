@@ -23,7 +23,7 @@ spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
       nodeSelector:
-        kubernetes.io/hostname: k8s-worker-1
+        homelab.tonys.dev/storage: local-path
       securityContext:
         runAsNonRoot: true
         runAsUser: 100

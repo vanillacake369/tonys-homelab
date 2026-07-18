@@ -29,10 +29,10 @@ spec:
     spec:
       # 앱은 Kubernetes API 를 쓰지 않으므로 SA 토큰을 마운트하지 않는다.
       automountServiceAccountToken: false
-      # 앱·Postgres·3 PVC 를 같은 노드에 모은다.
-      #   local-path 는 노드 로컬이라 분산되면 PVC 바인딩/통신이 어긋난다.
+      # 앱·Postgres·PVC 를 local-path data node pool에 모은다.
+      #   실제 pool 멤버와 label은 network/topology.nix에서 선언한다.
       nodeSelector:
-        kubernetes.io/hostname: k8s-worker-1
+        homelab.tonys.dev/storage: local-path
       securityContext:
         fsGroup: 1000
         runAsUser: 1000

@@ -16,8 +16,8 @@
 | NetworkPolicy | default deny, ingress entity, DNS egress | `bookorbit`는 DB/setup Job 규칙 필요 | 높음 for stateless | WebService는 ingress+DNS만 생성 |
 | Image | digest pin 선호, `latest` 금지 | `tonys-gis`는 Harbor digest pin 사용 | 높음 | schema는 digest 필수 |
 | ConfigMap/Secret | Secret 값은 SOPS, 앱은 ref만 사용 | `bookorbit`는 ConfigMap/Secret/Job 필요 | 낮음 for first pass | `secretEnv` ref만 지원 |
-| Flux path | `k8s/clusters/homelab` 루트, infrastructure dependsOn | `bookorbit`는 전용 KS, generated apps는 공용 KS | 중간 | 앱 수 증가 전까지 단일 generated KS 유지 |
-| Generated 관례 | `flux-system`은 generated로 존재 | 플랫폼 generated 관례 없음 | 높음 | `k8s/generated/**` 신설 |
+| Flux path | `deploy/k8s/clusters/homelab` 루트, infrastructure dependsOn | `bookorbit`는 전용 KS, generated apps는 공용 KS | 중간 | 앱 수 증가 전까지 단일 generated KS 유지 |
+| Generated 관례 | `flux-system`은 generated로 존재 | 플랫폼 generated 관례 없음 | 높음 | `deploy/k8s/generated/**` 신설 |
 
 ## 대안 비교
 
@@ -45,7 +45,7 @@ CUE direct renderer를 채택한다.
 ## 구조
 
 ```text
-platform/
+deploy/platform/
 ├── api/        # 앱 작성자가 쓰는 public contract
 ├── policies/   # 모든 앱에 강제할 불변 조건
 ├── profiles/   # 선택 가능한 기본값 묶음
@@ -53,11 +53,11 @@ platform/
 ├── apps/       # SSoT app intent
 └── tests/      # negative fixtures
 
-k8s/generated/apps/
+deploy/k8s/generated/apps/
 └── tonys-gis/
 ```
 
-물리 디렉터리는 책임별로 나누되, CUE build는 `scripts/platform-render.sh`가 임시
+물리 디렉터리는 책임별로 나누되, CUE build는 `deploy/tools/platform-render.sh`가 임시
 context로 합성한다. CUE는 디렉터리 단위 package resolution을 하므로, 이 repo의
 초기 단계에서는 module import graph보다 deterministic 합성을 우선한다.
 
@@ -72,13 +72,13 @@ context로 합성한다. CUE는 디렉터리 단위 package resolution을 하므
 | 여러 cluster에 immutable package 배포 | 아니오 | homelab 단일 cluster |
 | 단일 repo 내 CUE rendering으로 충분한가 | 예 | Flux/Argo 모두 generated path 소비 가능 |
 
-미래에 Timoni로 옮기려면 `platform/api`와 `platform/render`의 경계를 module
-schema와 template 경계로 유지하면 된다. `platform/apps/*.cue`는 Timoni bundle
+미래에 Timoni로 옮기려면 `deploy/platform/api`와 `deploy/platform/render`의 경계를 module
+schema와 template 경계로 유지하면 된다. `deploy/platform/apps/*.cue`는 Timoni bundle
 values로 이전 가능해야 한다.
 
 ## Flux adapter 판단
 
-현재 `k8s/clusters/homelab/apps.yaml`은 `./k8s/apps`를 보지만 실제 resources는
+현재 `deploy/k8s/clusters/homelab/apps.yaml`은 `./deploy/k8s/apps`를 보지만 실제 resources는
 비어 있다. `bookorbit`는 상태저장 앱이라 전용 Flux Kustomization을 가진다.
 
 선택지는 두 가지다.
@@ -89,13 +89,13 @@ values로 이전 가능해야 한다.
 | 앱별 Flux KS | 격리와 헬스 추적이 좋음 | 앱마다 Flux YAML 반복 | 앱 수 증가 후 |
 
 초기에는 하나의 `generated-apps` KS가 충분하다. 현재 `tonys-gis`는 Harbor
-digest로 고정했고, `k8s/clusters/homelab/generated-apps.yaml`을 통해 production
+digest로 고정했고, `deploy/k8s/clusters/homelab/generated-apps.yaml`을 통해 production
 Flux 루트에 연결되어 있다. 앱 수가 늘거나 개별 health/rollback 격리가 필요해질
 때 앱별 Flux Kustomization을 재평가한다.
 
 ## Argo adapter 판단
 
-Argo CD는 현재 운영 컨트롤러가 아니다. `gitops/argo`에는 AppProject와
+Argo CD는 현재 운영 컨트롤러가 아니다. `deploy/gitops/argo`에는 AppProject와
 ApplicationSet 초안만 둔다. Argo pilot을 적용하려면 먼저 Flux ownership을
 suspend하거나 경로를 분리해야 한다.
 
@@ -104,7 +104,7 @@ suspend하거나 경로를 분리해야 한다.
 `tonys-gis` 기존 manifest 대비 의도된 차이:
 
 - image가 `:0.1.0` tag에서 Harbor `@sha256` digest contract로 바뀐다.
-- `generated-apps` Flux Kustomization이 `k8s/generated/apps` 경로를 적용한다.
+- `generated-apps` Flux Kustomization이 `deploy/k8s/generated/apps` 경로를 적용한다.
 - YAML key order와 list formatting은 CUE export 기준으로 안정화된다.
 
 의도하지 않은 차이는 `just diff-generated`와 기존 manifest 비교로 제거한다.
@@ -113,7 +113,7 @@ suspend하거나 경로를 분리해야 한다.
 
 1. Flux adapter를 활성화했다면 `suspend: true`로 되돌린다.
 2. 루트 Kustomization에 `generated-apps.yaml`을 추가했다면 해당 참조를 제거한다.
-3. `k8s/generated/apps/tonys-gis`를 삭제하거나 이전 커밋으로 되돌린다.
+3. `deploy/k8s/generated/apps/tonys-gis`를 삭제하거나 이전 커밋으로 되돌린다.
 4. 기존 `tonys-gis` repo의 `deploy/k8s/base` + Skaffold 직접 배포 경로로 복귀한다.
 
 ## BookOrbit gap

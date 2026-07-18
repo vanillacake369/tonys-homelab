@@ -12,7 +12,7 @@ ssh-config := ```
   config_file=".cache/ssh-config"
 
   # 데이터 가져오기
-  nix_data=$(nix eval --impure --json --expr "(import ./network/topology.nix)")
+  nix_data=$(nix eval --impure --json --expr 'let t = import ./network/topology.nix; in { inherit (t) hosts vms wan dns vlans tailscale kubernetes storage; }')
   ts_data_raw=$(tailscale status --json 2>/dev/null || true)
   if echo "$ts_data_raw" | jq -e . >/dev/null 2>&1; then
     ts_data="$ts_data_raw"
@@ -26,7 +26,7 @@ ssh-config := ```
       (($ts.Peer[]? | select(.HostName == $host.key or (.DNSName | startswith($host.key+"."))) | .TailscaleIPs[0]) // $host.value.ip) as $ip |
       "Host \($host.key)\n    HostName \($ip)\n    User \($host.value.user)\n    StrictHostKeyChecking no\n"),
     (.vms | to_entries[] as $vm |
-      "Host \($vm.key) \($vm.value.ip)\n    HostName \($vm.value.ip)\n    User root\n    ProxyJump \($vm.value.host)\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n")
+      "Host \($vm.key) \($vm.value.ip)\n    HostName \($vm.value.ip)\n    User root\n    ProxyJump \($vm.value.parentHost)\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n")
   ' > "$config_file"
 
   echo "$config_file"
@@ -210,33 +210,33 @@ flux action="status" *args:
             ;;
     esac
 
-# Render one platform app from platform/apps/*.cue into k8s/generated/apps/<app>.
+# Render one platform app from deploy/platform/apps/*.cue into deploy/k8s/generated/apps/<app>.
 render app="${APP:-tonys-gis}":
-    ./scripts/platform-render.sh render "{{ app }}"
+    ./deploy/tools/platform-render.sh render "{{ app }}"
 
 # Render all platform apps.
 render-all:
-    ./scripts/platform-render.sh render-all
+    ./deploy/tools/platform-render.sh render-all
 
 # Check one platform app render, validation, negative fixtures, and determinism.
 check-app app="${APP:-tonys-gis}":
-    ./scripts/platform-render.sh check "{{ app }}"
+    ./deploy/tools/platform-render.sh check "{{ app }}"
 
 # Check all platform apps.
 check-all:
-    ./scripts/platform-render.sh check-all
+    ./deploy/tools/platform-render.sh check-all
 
 # Verify committed generated output is up to date.
 check-generated:
-    ./scripts/platform-render.sh check-generated
+    ./deploy/tools/platform-render.sh check-generated
 
 # Show generated output drift.
 diff-generated:
-    ./scripts/platform-render.sh diff-generated
+    ./deploy/tools/platform-render.sh diff-generated
 
 # Remove generated platform output.
 clean-generated:
-    ./scripts/platform-render.sh clean-generated
+    ./deploy/tools/platform-render.sh clean-generated
 
 # Connect to node managed by colmena using generated SSH config.
 ssh node:
@@ -295,10 +295,10 @@ _check_nix:
 _check_k8s:
     #!/usr/bin/env bash
     roots=(
-        k8s/clusters/homelab
-        k8s/infrastructure
-        k8s/apps/bookorbit
-        k8s/generated/apps
+        deploy/k8s/clusters/homelab
+        deploy/k8s/infrastructure
+        deploy/k8s/apps/bookorbit
+        deploy/k8s/generated/apps
     )
 
     run() {
@@ -362,7 +362,7 @@ _check_k8s:
     rendered_files=()
     policy_files=()
     for root in "${roots[@]}"; do
-        name="${root#k8s/}"
+        name="${root#deploy/k8s/}"
         name="${name//\//-}"
         raw="$tmp_dir/$name.raw.yaml"
         rendered="$tmp_dir/$name.yaml"
@@ -378,8 +378,8 @@ _check_k8s:
 
     run kubeconform -summary -strict -ignore-missing-schemas -kubernetes-version "$kubernetes_version" "${rendered_files[@]}"
     run kube-linter lint --exclude no-read-only-root-fs "${rendered_files[@]}"
-    run kyverno apply policy/k8s/kyverno/policies --resource "${policy_files[@]}"
-    run kyverno test policy/k8s/kyverno --require-tests
+    run kyverno apply deploy/policy/k8s/kyverno/policies --resource "${policy_files[@]}"
+    run kyverno test deploy/policy/k8s/kyverno --require-tests
 
     for rendered in "${rendered_files[@]}"; do
         require_default_deny bookorbit "$rendered"
@@ -392,7 +392,7 @@ _check_k8s:
 _check_shell:
     #!/usr/bin/env bash
     shell_roots=()
-    for candidate in scripts .githooks .husky; do
+    for candidate in deploy/tools .githooks .husky; do
         if [ -d "$candidate" ]; then
             shell_roots+=("$candidate")
         fi
@@ -419,8 +419,8 @@ _check_yaml:
         -d '{extends: relaxed, rules: {line-length: disable, indentation: disable}}' \
         .github \
         ansible \
-        k8s \
-        policy
+        deploy/k8s \
+        deploy/policy
 
 [private]
 _check_actions:
@@ -487,8 +487,8 @@ _check_docs:
     docs=(
         README.md
         ansible/README.md
-        k8s/README.md
-        k8s/docs/bookorbit-onboarding.md
+        deploy/k8s/README.md
+        deploy/k8s/docs/bookorbit-onboarding.md
         docs/runbooks/magicdns-gitops-onboarding.md
     )
     allowed='^(ci|cd|cd-plan|check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
@@ -741,7 +741,7 @@ _flux_bootstrap owner repo="tonys-homelab" branch="main":
         --owner={{ owner }} \
         --repository={{ repo }} \
         --branch={{ branch }} \
-        --path=k8s/clusters/homelab \
+        --path=deploy/k8s/clusters/homelab \
         --personal"
 
 [private]

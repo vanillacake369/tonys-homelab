@@ -18,8 +18,8 @@
 - `bookorbit` Flux Kustomization은 `Ready=True`여야 한다. 과거에는 실패한
   `bookorbit-setup` Job의 immutable `spec.template` 충돌로 `Ready=False`가 된 적이
   있으므로 같은 메시지가 재발하면 아래 분기표를 따른다.
-- `tonys-gis`는 `platform/apps/tonys-gis.cue`를 SSoT로 하고,
-  `k8s/generated/apps/tonys-gis` 생성물을 `generated-apps` Flux Kustomization이
+- `tonys-gis`는 `deploy/platform/apps/tonys-gis.cue`를 SSoT로 하고,
+  `deploy/k8s/generated/apps/tonys-gis` 생성물을 `generated-apps` Flux Kustomization이
   production에 적용한다.
 - `tonys-gis` 이미지는
   `harbor.home.arpa/tonys-gis/tonys-gis@sha256:cbae25cb11b4729d4e15f9f2885fbcac0bf787e1df791e5b8c541be4e6e3194c`
@@ -179,8 +179,8 @@ just check-generated
   해석된다.
 - Harbor project `tonys-gis`와 robot account가 존재한다.
 - `tonys-gis` namespace에 `harbor-tonys-gis-pull` image pull secret이 존재한다.
-- `platform/apps/tonys-gis.cue`의 digest가 실제 pushed image digest다.
-- `k8s/clusters/homelab/generated-apps.yaml`이 production Kustomization으로
+- `deploy/platform/apps/tonys-gis.cue`의 digest가 실제 pushed image digest다.
+- `deploy/k8s/clusters/homelab/generated-apps.yaml`이 production Kustomization으로
   연결되고 `suspend: false`다.
 
 이미지 digest 조회 예시:

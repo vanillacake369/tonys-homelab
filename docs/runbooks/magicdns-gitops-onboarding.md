@@ -12,11 +12,11 @@
 | 외부 진입점 | Tailscale Serve -> Cilium Gateway `10.0.20.240:80` |
 | BookOrbit 경로 | `/api/v1/health` |
 | Tonys GIS 경로 | `/tonys-gis/api/hello`, `/tonys-gis/actuator/health/readiness` |
-| Tonys GIS SSoT | `platform/apps/tonys-gis.cue` |
-| Tonys GIS 생성물 | `k8s/generated/apps/tonys-gis/` |
-| 수동 수정 금지 | `k8s/generated/**`, `k8s/clusters/homelab/flux-system/**` |
+| Tonys GIS SSoT | `deploy/platform/apps/tonys-gis.cue` |
+| Tonys GIS 생성물 | `deploy/k8s/generated/apps/tonys-gis/` |
+| 수동 수정 금지 | `deploy/k8s/generated/**`, `deploy/k8s/clusters/homelab/flux-system/**` |
 
-`bookorbit`은 현재 상태저장 앱이므로 `k8s/apps/bookorbit/`의 명시적 manifest를
+`bookorbit`은 현재 상태저장 앱이므로 `deploy/k8s/apps/bookorbit/`의 명시적 manifest를
 사용한다. `tonys-gis`는 CUE intent에서 deterministic하게 생성된 manifest를
 Flux가 소비한다.
 
@@ -53,7 +53,7 @@ just check-generated
 3. 커밋하고 푸시한다.
 
 ```bash
-git add platform k8s/generated docs justfile
+git add deploy/platform deploy/k8s/generated docs justfile
 git commit -m "feat(platform): update tonys gis deployment"
 git push
 ```
@@ -112,7 +112,7 @@ match가 깨진 상태다.
 - Secret 값은 repo와 generated manifest에 넣지 않는다.
 - 로컬 git remote에 토큰이 포함된 URL을 남기지 않는다.
 - 운영 이미지는 tag-only가 아니라 digest로 고정한다.
-- `k8s/generated/**`는 생성 산출물이므로 직접 수정하지 않는다.
+- `deploy/k8s/generated/**`는 생성 산출물이므로 직접 수정하지 않는다.
 - Flux와 Argo CD가 같은 리소스를 동시에 reconcile하게 만들지 않는다.
 
 ## Rollback
@@ -125,8 +125,8 @@ git push
 CONFIRM_DEPLOY=homelab just cd gitops
 ```
 
-`tonys-gis`만 급히 내릴 때는 `k8s/clusters/homelab/generated-apps.yaml` 연결을
-되돌리거나 `k8s/generated/apps/kustomization.yaml`에서 해당 앱 디렉터리를 제거한
+`tonys-gis`만 급히 내릴 때는 `deploy/k8s/clusters/homelab/generated-apps.yaml` 연결을
+되돌리거나 `deploy/k8s/generated/apps/kustomization.yaml`에서 해당 앱 디렉터리를 제거한
 커밋을 만든다. BookOrbit 회귀 여부는 항상 함께 확인한다.
 
 ```bash

@@ -1,9 +1,9 @@
 ---
 # 라이브러리 볼륨(/books). RWO, local-path StorageClass.
-# WaitForFirstConsumer 라 처음 스케줄된 노드(k8s-worker-1)에 PV 가 고정된다.
+# WaitForFirstConsumer 라 처음 스케줄된 local-path data node에 PV 가 고정된다.
 # local-path 는 노드 디스크에 의존하고 용량을 사전 검증하지 않으므로,
 #   배포 전 여유 공간을 확인한다:
-#     ssh k8s-worker-1 df -h /opt/local-path-provisioner
+#     ssh <data-node> df -h /opt/local-path-provisioner
 #   (부족하면 PVC 가 Pending 에서 멈춘다.)
 apiVersion: v1
 kind: PersistentVolumeClaim

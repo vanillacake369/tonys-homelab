@@ -3,8 +3,16 @@
 {
   pkgs,
   lib,
+  config,
   ...
 }: let
+  topology = import ../../network/topology.nix;
+  hostName = config.networking.hostName;
+  localPathStorage = topology.storage.localPath;
+  nodeLabels =
+    lib.optionals (builtins.elem hostName localPathStorage.dataNodes)
+    (lib.mapAttrsToList (name: value: "${name}=${value}") localPathStorage.nodeSelector);
+
   # kubelet ExecStart wrapper:
   # - kubeadm이 생성하는 kubeconfig/flags 파일이 있을 때만 올바른 모드로 실행
   # - kubeconfig가 없으면 standalone 모드로 뜨며 webhook auth에서 실패하므로 방지
@@ -28,7 +36,7 @@
       args+=(--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf)
     fi
 
-    exec ${pkgs.kubernetes}/bin/kubelet "''${args[@]}" ''${KUBELET_KUBEADM_ARGS:-} ''${KUBELET_EXTRA_ARGS:-}
+    exec ${pkgs.kubernetes}/bin/kubelet "''${args[@]}" ''${KUBELET_KUBEADM_ARGS:-} ''${KUBELET_TOPOLOGY_ARGS:-} ''${KUBELET_EXTRA_ARGS:-}
   '';
 
   # Patch kubeadm-generated kubelet config for NodeAuthorizer compatibility.
@@ -127,6 +135,9 @@ in {
       EnvironmentFile = [
         "-/var/lib/kubelet/kubeadm-flags.env"
         "-/etc/default/kubelet"
+      ];
+      Environment = lib.optionals (nodeLabels != []) [
+        "KUBELET_TOPOLOGY_ARGS=--node-labels=${lib.concatStringsSep "," nodeLabels}"
       ];
       ExecStart = lib.mkForce kubeletWrapper;
 

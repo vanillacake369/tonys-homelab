@@ -15,7 +15,7 @@
   # libvirt VM 인프라 (pure function — 값은 여기서 주입)
   libvirtInfra = import ../../lib/mk-libvirt.nix {
     inherit lib pkgs;
-    vms = network.vms;
+    vms = network.vmsForHost "homelab-1";
     bridge = externalIf;
     vlanId = svcVlanId;
   };

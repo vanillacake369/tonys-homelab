@@ -16,7 +16,7 @@
 
   vmInfo = let
     vm = topology.vms.${node};
-    parentName = vm.host;
+    parentName = vm.parentHost;
     parent =
       if builtins.hasAttr parentName topology.hosts
       then topology.hosts.${parentName}

@@ -19,7 +19,9 @@
   tags: [always]
 
 - name: "[State] Detect network interface for kube-vip"
-  shell: ip -o -4 addr show | grep '10\.0\.20\.' | awk '{print $2}' | head -n1
+  shell: >-
+    ip -o route get {{ api_vip }} |
+    sed -n 's/.* dev \([^ ]*\).*/\1/p'
   register: detected_iface
   changed_when: false
   when: node_role == 'master'

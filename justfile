@@ -569,7 +569,7 @@ _vm_build *vms:
     if [ "$targets" = "all" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
 
     for vm in $targets; do
-        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        host=$(echo "$data" | jq -r ".\"$vm\".parentHost")
         echo "=== Building $vm on $host (Target: $target_system) ==="
         ssh -n -F {{ ssh-config }} "$host" "rm -rf $remote_dir && mkdir -p $remote_dir"
         rsync -az --filter=':- .gitignore' --exclude='.git' -e "ssh -F {{ ssh-config }}" . "$host:$remote_dir/"
@@ -591,7 +591,7 @@ _vm_provision *vms:
     if [ "$targets" = "all" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
 
     for vm in $targets; do
-        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        host=$(echo "$data" | jq -r ".\"$vm\".parentHost")
         ip=$(echo "$data" | jq -r ".\"$vm\".ip")
         echo "=== Provisioning $vm on $host ($ip) ==="
         ssh -n -F {{ ssh-config }} "$host" "sudo virsh destroy $vm 2>/dev/null || true; \
@@ -616,7 +616,7 @@ _vm_systemctl action *names:
     if [ -z "$targets" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
     if [ "$targets" = "all" ]; then targets=$(echo "$data" | jq -r 'keys[]'); fi
     for vm in $targets; do
-        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        host=$(echo "$data" | jq -r ".\"$vm\".parentHost")
         echo "$vm: {{ action }} on $host..."
         just _ssh "$host" "sudo systemctl {{ action }} vm-$vm.service" &
     done
@@ -641,7 +641,7 @@ _vm_destroy +names:
     fi
 
     for vm in $targets; do
-        host=$(echo "$data" | jq -r ".\"$vm\".host")
+        host=$(echo "$data" | jq -r ".\"$vm\".parentHost")
         echo "$vm: destroying on $host..."
         just _ssh "$host" "sudo systemctl stop vm-$vm.service 2>/dev/null || true; \
             sudo virsh destroy $vm 2>/dev/null || true; \
@@ -686,10 +686,10 @@ _vm_status *names:
     if [ -n "$targets" ]; then
         echo "$data" | jq --arg names "$targets" -r '
           ($names | split(" ")) as $want |
-          to_entries[] | select(.key as $name | $want | index($name)) | "\(.key) \(.value.ip) \(.value.host)"
+          to_entries[] | select(.key as $name | $want | index($name)) | "\(.key) \(.value.ip) \(.value.parentHost)"
         '
     else
-        echo "$data" | jq -r 'to_entries[] | "\(.key) \(.value.ip) \(.value.host)"'
+        echo "$data" | jq -r 'to_entries[] | "\(.key) \(.value.ip) \(.value.parentHost)"'
     fi | while read -r name ip host; do
         if just _ssh "$host" "nc -zvw2 $ip 22" &>/dev/null; then
             echo "  $name ($ip) on $host: OK"

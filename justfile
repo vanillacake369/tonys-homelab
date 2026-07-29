@@ -530,7 +530,7 @@ _deploy_host_plan:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
     echo "Target: hosts ($targets)"
-    just _colmena apply --dry-run --on "$targets" --verbose
+    just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
 [private]
 _deploy_vm:
@@ -543,7 +543,7 @@ _deploy_vm_plan:
     #!/usr/bin/env bash
     targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
     echo "Target: vms ($targets)"
-    just _colmena apply --dry-run --on "$targets" --verbose
+    just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
 [private]
 _deploy_nodes +nodes:
@@ -554,7 +554,7 @@ _deploy_nodes_plan +nodes:
     #!/usr/bin/env bash
     targets="$(echo "{{ nodes }}" | tr ' ' ',')"
     echo "Target: nodes ($targets)"
-    just _colmena apply --dry-run --on "$targets" --verbose
+    just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
 [private]
 _vm_build *vms:

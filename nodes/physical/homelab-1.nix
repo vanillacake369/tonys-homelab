@@ -46,9 +46,31 @@ in {
     qemu.runAsRoot = true;
   };
 
+  # Host-owned accelerator stack for the SER8 Ryzen 8845HS / Radeon 780M.
+  hardware = {
+    enableRedistributableFirmware = true;
+    cpu.amd.updateMicrocode = true;
+    graphics.enable = true;
+    amdgpu.opencl.enable = true;
+  };
+
+  users.users.limjihoon.extraGroups = [
+    "render"
+    "video"
+    "libvirtd"
+    "kvm"
+  ];
+
   environment.systemPackages = with pkgs; [
     virt-manager
     tailscale
+    amdgpu_top
+    clinfo
+    libva-utils
+    radeontop
+    rocmPackages.rocminfo
+    rocmPackages.rocm-smi
+    vulkan-tools
   ];
 
   # VM Domain 자동 정의 + VLAN hook (mk-libvirt.nix 주입)

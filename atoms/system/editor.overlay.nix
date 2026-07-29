@@ -6,7 +6,7 @@ _: prev: {
       owner = "neovim";
       repo = "neovim";
       tag = "v${version}";
-      hash = "sha256-aX2IW9BCXL+GYymSRe12PbKyIi/H9LDzEp5gVPY81Ok=";
+      hash = "sha256-GdfCaKNe/qPaUV2NJPXY+ATnQNWnyFTFnkOYDyLhTNg=";
     };
   });
 }

@@ -19,7 +19,7 @@ jobs:
       - name: Setup Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@55718cd9ebf1737a061487d5ada21abf31e99a98
       - name: Update flake.lock
-        uses: DeterminateSystems/update-flake-lock@ec13d37c32ca75bc750ecc133e944e5a18164688
+        uses: DeterminateSystems/update-flake-lock@0281a39e4c38fabb75c9d1377e541666db300909
         with:
           pr-title: "chore(deps): update flake dependencies"
           pr-labels: |

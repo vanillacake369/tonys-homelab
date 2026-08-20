@@ -4,7 +4,7 @@ NixOS + libvirt + Colmena 기반 선언적 홈랩 인프라.
 물리 서버 위에 libvirt QEMU/KVM으로 Kubernetes 클러스터를 운영합니다.
 
 ```bash
-just deploy        # 물리호스트 → VM 순서로 전체 배포
+CONFIRM_DEPLOY=homelab just apply infra all  # 물리호스트 -> VM 순서로 전체 배포
 just ssh k8s-master-1  # VM SSH 접속
 just k8s deploy    # K8s 클러스터 부트스트랩/수렴
 ```
@@ -33,11 +33,8 @@ flowchart TB
 
     subgraph VLAN20["VLAN 20: Services (10.0.20.0/24)"]
       M1["k8s-master-1<br/>10.0.20.10"]
-      M2["k8s-master-2<br/>10.0.20.11"]
-      M3["k8s-master-3<br/>10.0.20.12"]
       W1["k8s-worker-1<br/>10.0.20.21"]
       W2["k8s-worker-2<br/>10.0.20.22"]
-      W3["k8s-worker-3<br/>10.0.20.23"]
     end
   end
 
@@ -68,7 +65,8 @@ flowchart TB
 ```
 .
 ├── flake.nix                  # Nix Flake 진입점
-├── justfile                   # 운영 명령어 (deploy, ssh, k8s, ...)
+├── justfile                   # 운영 명령어 (plan/apply/manifest/ssh/k8s, ...)
+├── completions/               # zsh/fish completion for just
 ├── network/
 │   └── topology.nix           # CIDR/VLAN/호스트/VM 네트워크 상수
 ├── lib/                       # Colmena hive + libvirt 빌드 헬퍼
@@ -119,14 +117,29 @@ Host 10.0.20.* k8s-master-* k8s-worker-*
 
 ```bash
 # 검증
-just ci
+just check
 
-# 전체 배포 (호스트 -> VM 순서)
-just deploy
+# manifest 생성/검증
+just manifest render tonys-gis
+just manifest check tonys-gis
+just manifest check-generated
 
-# 특정 노드만 배포
-just deploy node homelab-1
-just deploy node k8s-master-1 k8s-worker-1
+# 실제 적용 전 plan
+just plan gitops
+just plan infra host-all
+just plan infra vm k8s-master-1
+
+# CI와 confirmation을 거친 적용
+CONFIRM_DEPLOY=homelab just apply gitops
+CONFIRM_DEPLOY=homelab just apply infra host homelab-1
+CONFIRM_DEPLOY=homelab just apply infra vm k8s-master-1
+```
+
+### Shell completion
+
+```bash
+just install-completions
+CONFIRM_INSTALL_COMPLETIONS=homelab just install-completions  # 기존 just completion 덮어쓰기
 ```
 
 ## Operations
@@ -143,25 +156,23 @@ just vm status
 
 # 시스템 점검
 just k8s verify           # K8s 클러스터 상세 점검
-just flux status          # Flux 리소스 상태
+just status gitops        # GitOps 상태
 
 # 로컬/CI 검증
 just check                # 전체 guardrail
-just ci                   # 로컬 CI-equivalent entrypoint
-just cd-plan gitops       # Flux reconcile 전 render/validation plan
 just check k8s            # kustomize + kubeconform + kube-linter + Kyverno
 just check nix            # deadnix + statix 리포트 + alejandra + flake check
 just check docs           # 문서의 just 명령어 정합성 검사
 
 # K8s 클러스터
 just k8s deploy           # bootstrap -> verify
-CONFIRM_DEPLOY=homelab just cd gitops # Flux ownership을 유지한 reconcile
 just k8s bootstrap        # 초기 부트스트랩
 CONFIRM_RESET=homelab just k8s clean        # 클러스터 리셋
 CONFIRM_RESET=homelab just k8s reset-deploy # reset -> bootstrap -> verify
 
 # 유지보수
 just gc                   # 전체 노드 가비지 컬렉션
-just gc homelab-1         # 특정 노드만
+just gc host homelab-1    # 특정 host만
+just gc vm k8s-master-1   # 특정 VM만
 just update               # flake 업데이트
 ```

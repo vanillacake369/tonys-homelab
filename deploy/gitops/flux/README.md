@@ -11,7 +11,7 @@
 운영 전환 순서:
 
 1. `deploy/platform/apps/tonys-gis.cue`의 digest를 실제 Harbor digest로 교체한다.
-2. `just check-app tonys-gis`와 `just check-generated`를 통과시킨다.
+2. `just manifest check tonys-gis`와 `just manifest check-generated`를 통과시킨다.
 3. `deploy/gitops/flux/apps-generated.yaml`을 `deploy/k8s/clusters/homelab/` 아래로 이동하거나
    동일 내용을 `generated-apps.yaml`로 추가한다.
 4. 루트 `deploy/k8s/clusters/homelab/kustomization.yaml`에 참조를 추가한다.

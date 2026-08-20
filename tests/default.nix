@@ -129,6 +129,7 @@
     (assert' "remote-access: users are declarative" (!homelabConfig.users.mutableUsers))
     (assert' "remote-access: root password comes from sops" (homelabConfig.users.users.root.hashedPasswordFile == homelabConfig.sops.secrets."users/rootPassword".path))
     (assert' "remote-access: homelab deployment user remains limjihoon" (homelabConfig.node.user == "limjihoon"))
+    (assert' "remote-access: deployment user keeps passwordless sudo for Colmena" (!homelabConfig.security.sudo.wheelNeedsPassword))
     (assert' "remote-access: remote user is not declared" (!(homelabConfig.users.users ? remote)))
     (assert' "remote-access: ipad homelab keys are assigned to limjihoon" (builtins.all (key: builtins.elem key homelabConfig.users.users.limjihoon.openssh.authorizedKeys.keys) ipadHomelabKeys))
     (assert' "remote-access: ipad homelab keys are not assigned to root" (builtins.all (key: !(builtins.elem key homelabConfig.users.users.root.openssh.authorizedKeys.keys)) ipadHomelabKeys))

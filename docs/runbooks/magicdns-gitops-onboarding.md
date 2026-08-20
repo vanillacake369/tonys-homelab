@@ -24,10 +24,10 @@ Flux가 소비한다.
 
 | 목적 | 도구 | 비고 |
 | --- | --- | --- |
-| 로컬 검증 | `nix develop`, `just ci` | CI와 같은 진입점으로 맞춘다. |
+| 로컬 검증 | `nix develop`, `just check` | CI와 같은 진입점으로 맞춘다. |
 | GitHub Actions 확인 | 비활성 | 이전 workflow는 `.github/workflows.disabled/`에 보존한다. |
 | 클러스터 접근 | `just ssh k8s-master-1` 또는 `ssh -F .cache/ssh-config k8s-master-1` | 로컬 kubeconfig가 없어도 검증 가능하다. |
-| Flux 수렴 | `just flux status`, `just flux reconcile` | 필요할 때만 강제 reconcile한다. |
+| Flux 수렴 | `just status gitops`, `CONFIRM_DEPLOY=homelab just reconcile gitops` | 필요할 때만 강제 reconcile한다. |
 | 외부 검증 | `curl` | HTTP status와 응답 body를 같이 본다. |
 
 Docker CLI/daemon은 필수 경로가 아니다. Registry digest 조회는 `crane digest`를
@@ -39,15 +39,15 @@ Docker CLI/daemon은 필수 경로가 아니다. Registry digest 조회는 `cran
 
 ```bash
 git status --short
-just ci
+just check
 ```
 
 2. `tonys-gis` intent를 바꿨다면 생성물도 갱신한다.
 
 ```bash
-just render tonys-gis
-just check-app tonys-gis
-just check-generated
+just manifest render tonys-gis
+just manifest check tonys-gis
+just manifest check-generated
 ```
 
 3. 커밋하고 푸시한다.
@@ -61,7 +61,7 @@ git push
 4. 로컬 CI가 통과하는지 확인한다.
 
 ```bash
-just ci
+just check
 ```
 
 실패하면 로그의 첫 번째 concrete error를 기준으로 수정한다. 같은 명령을 반복하기
@@ -70,8 +70,8 @@ just ci
 5. Flux가 최신 Git revision으로 수렴했는지 확인한다.
 
 ```bash
-just flux status
-CONFIRM_DEPLOY=homelab just cd gitops
+just status gitops
+CONFIRM_DEPLOY=homelab just apply gitops
 ssh -F .cache/ssh-config k8s-master-1 "kubectl get kustomizations -A"
 ```
 
@@ -122,7 +122,7 @@ match가 깨진 상태다.
 ```bash
 git revert <bad-commit>
 git push
-CONFIRM_DEPLOY=homelab just cd gitops
+CONFIRM_DEPLOY=homelab just apply gitops
 ```
 
 `tonys-gis`만 급히 내릴 때는 `deploy/k8s/clusters/homelab/generated-apps.yaml` 연결을

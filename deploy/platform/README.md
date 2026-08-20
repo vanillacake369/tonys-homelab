@@ -27,16 +27,16 @@
 ## 명령
 
 ```bash
-just render tonys-gis
-just render-all
-just check-app tonys-gis
-just check-all
-just check-generated
-just diff-generated
-just clean-generated
+just manifest render tonys-gis
+just manifest render-all
+just manifest check tonys-gis
+just manifest check-all
+just manifest check-generated
+just manifest diff
+just manifest clean
 ```
 
-`check-app`은 CUE concrete export, negative fixture, Kustomize build,
+`manifest check`는 CUE concrete export, negative fixture, Kustomize build,
 kubeconform, deterministic re-render를 확인한다.
 
 ## 운영 주의

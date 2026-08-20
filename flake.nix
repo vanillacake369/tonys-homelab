@@ -88,6 +88,7 @@
           alejandra
           cue
           deadnix
+          fish
           gitleaks
           just
           jq
@@ -101,6 +102,7 @@
           statix
           yamllint
           yq-go
+          zsh
         ];
       };
     });

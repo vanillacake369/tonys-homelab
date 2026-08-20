@@ -23,8 +23,11 @@
     ../deploy/k8s/apps/bookorbit/setup-job.yaml
   ];
   readKeyLines = file:
-    builtins.filter (key: key != "")
-    (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)));
+    if builtins.pathExists file
+    then
+      builtins.filter (key: key != "")
+      (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)))
+    else [];
   ipadHomelabKeys = readKeyLines ../secrets/ipad-homelab.pub;
 
   unique = values: builtins.length values == builtins.length (lib.unique values);

@@ -107,7 +107,7 @@ suspend하거나 경로를 분리해야 한다.
 - `generated-apps` Flux Kustomization이 `deploy/k8s/generated/apps` 경로를 적용한다.
 - YAML key order와 list formatting은 CUE export 기준으로 안정화된다.
 
-의도하지 않은 차이는 `just diff-generated`와 기존 manifest 비교로 제거한다.
+의도하지 않은 차이는 `just manifest diff`와 기존 manifest 비교로 제거한다.
 
 ## Rollback
 

@@ -35,7 +35,7 @@
 | SSH 경유 운영 점검 | `just`, `ssh`, `tailscale`, `jq`, `nix` | 직접 SSH config | `justfile`이 topology와 Tailscale peer를 합쳐 `.cache/ssh-config`를 만든다. |
 | 클러스터 상태 확인 | 원격 `kubectl`, 원격 `flux` | 로컬 kubeconfig | 로컬 context가 비어 있으면 원격 실행을 표준으로 둔다. |
 | manifest 검증 | `kustomize`, `kubeconform`, `kyverno`, `yq` | `kubectl apply --dry-run=server` | server-side dry-run은 클러스터 접근이 필요하다. |
-| `tonys-gis` 렌더링 | `cue`, `just render`, `just check-app` | 없음 | generated output은 직접 수정하지 않는다. |
+| `tonys-gis` 렌더링 | `cue`, `just manifest render`, `just manifest check` | 없음 | generated output은 직접 수정하지 않는다. |
 | 이미지 build/push | `podman` | `buildah` | Docker Desktop 제거 환경을 기본으로 둔다. |
 | registry digest 조회 | `crane digest` | `skopeo inspect docker://...`, `regctl image digest` | Docker 제거 환경에서는 `crane`을 우선한다. |
 | 외부 접근 확인 | `curl` | 브라우저 | Tailscale MagicDNS 경로를 확인한다. |
@@ -61,7 +61,7 @@ podman info
 
 | 옵션 | 적용 상황 | 장점 | 리스크 |
 | --- | --- | --- | --- |
-| 기존 Podman machine 복구 | local build/push를 유지할 때 | 기존 `just image-build` 경로 유지 | machine/socket 상태 문제를 먼저 해결해야 한다. |
+| 기존 Podman machine 복구 | local build/push를 유지할 때 | 이미지 빌드 경로를 별도로 유지 | machine/socket 상태 문제를 먼저 해결해야 한다. |
 | 새 Podman machine 재생성 | 기존 machine이 꼬였을 때 | 상태를 단순화 | 로컬 image cache가 사라질 수 있다. |
 | 원격 Linux builder 사용 | macOS Podman 문제가 반복될 때 | Kubernetes node와 가까운 Linux build 환경 | builder 권한과 registry credential 관리가 필요하다. |
 | CI build로 위임 | 반복 가능한 release path가 필요할 때 | 개발자 로컬 runtime 의존 감소 | CI secret/registry/project bootstrap이 선행되어야 한다. |
@@ -114,7 +114,7 @@ ssh -F .cache/ssh-config k8s-master-1 \
 ### 3. BookOrbit 확인
 
 ```bash
-just flux status
+just status gitops
 
 ssh -F .cache/ssh-config k8s-master-1 \
   'flux get kustomization bookorbit -n flux-system'
@@ -169,8 +169,8 @@ namespace가 없거나 `generated-apps` Flux Kustomization이 없으면 producti
 깨진 상태다. intent 또는 renderer를 바꿨다면 다음 순서를 지킨다.
 
 ```bash
-just check-app tonys-gis
-just check-generated
+just manifest check tonys-gis
+just manifest check-generated
 ```
 
 운영 전환 필수 조건:

@@ -32,91 +32,100 @@ ssh-config := ```
   echo "$config_file"
 ```
 
-# Run the local CI-equivalent checks.
+# Deprecated alias for `just check`.
 ci target="all":
+    @just _warn_deprecated "just ci {{ target }}" "just check {{ target }}"
     just check "{{ target }}"
 
-# Plan a local deployment without applying changes. Targets: gitops, hosts, vms, node.
-cd-plan target *nodes:
+# Plan before remote mutation. Targets: gitops, infra all, infra host <name...>, infra vm <name...>.
+plan target *args:
     #!/usr/bin/env bash
+    set -euo pipefail
     case "{{ target }}" in
         gitops)
-            just ci
+            if [ -n "{{ args }}" ]; then
+                echo "Target 'gitops' does not accept extra arguments: {{ args }}" >&2
+                exit 2
+            fi
             echo "Target: gitops"
-            echo "Action: render and validate Flux-owned manifests only."
-            just check k8s
-            echo "Plan OK. To reconcile via Flux: CONFIRM_DEPLOY=homelab just cd gitops"
+            echo "Action: run local checks before reconciling GitOps-owned manifests."
+            just check
+            echo "Plan OK. To reconcile via Flux: CONFIRM_DEPLOY=homelab just apply gitops"
             ;;
-        hosts|host)
-            just ci
-            just _deploy_host_plan
+        infra)
+            just _infra_plan {{ args }}
             ;;
-        vms|vm)
-            just ci
-            just _deploy_vm_plan
-            ;;
-        node|nodes)
-            if [ -z "{{ nodes }}" ]; then
-                echo "Usage: just cd-plan node <node> [node...]" >&2
-                exit 2
-            fi
-            just ci
-            just _deploy_nodes_plan {{ nodes }}
+        all|host-all|hosts|vm-all|vms|host|vm|node|nodes)
+            just _infra_plan "{{ target }}" {{ args }}
             ;;
         *)
-            echo "Unknown CD target: {{ target }}" >&2
-            echo "Expected one of: gitops, hosts, vms, node" >&2
-            exit 2
+            just _infra_plan "{{ target }}" {{ args }}
             ;;
     esac
 
-# Apply a local deployment after CI and an explicit confirmation.
-cd target *nodes:
+# Apply after checks and explicit confirmation. Targets: gitops, infra all, infra host <name...>, infra vm <name...>.
+apply target *args:
     #!/usr/bin/env bash
-    if [ "${CONFIRM_DEPLOY:-}" != "homelab" ]; then
-        echo "Refusing deploy without explicit confirmation." >&2
-        echo "Run: CONFIRM_DEPLOY=homelab just cd {{ target }} {{ nodes }}" >&2
-        exit 2
-    fi
-
+    set -euo pipefail
     case "{{ target }}" in
         gitops)
-            just cd-plan gitops
-            just flux reconcile
-            ;;
-        hosts|host)
-            just cd-plan hosts
-            just deploy hosts
-            ;;
-        vms|vm)
-            just cd-plan vms
-            just deploy vms
-            ;;
-        node|nodes)
-            if [ -z "{{ nodes }}" ]; then
-                echo "Usage: CONFIRM_DEPLOY=homelab just cd node <node> [node...]" >&2
+            if [ -n "{{ args }}" ]; then
+                echo "Target 'gitops' does not accept extra arguments: {{ args }}" >&2
                 exit 2
             fi
-            just cd-plan node {{ nodes }}
-            just deploy node {{ nodes }}
+            just _require_confirm_deploy "just apply gitops"
+            just plan gitops
+            just _gitops_reconcile
+            ;;
+        infra)
+            just _topology_targets {{ args }} >/dev/null
+            just _require_confirm_deploy "just apply infra {{ args }}"
+            just plan infra {{ args }}
+            just _deploy_resolved {{ args }}
+            ;;
+        all|host-all|hosts|vm-all|vms|host|vm|node|nodes)
+            just _topology_targets "{{ target }}" {{ args }} >/dev/null
+            just _require_confirm_deploy "just apply infra {{ target }} {{ args }}"
+            just plan infra "{{ target }}" {{ args }}
+            just _deploy_resolved "{{ target }}" {{ args }}
             ;;
         *)
-            echo "Unknown CD target: {{ target }}" >&2
-            echo "Expected one of: gitops, hosts, vms, node" >&2
-            exit 2
+            just _topology_targets "{{ target }}" {{ args }} >/dev/null
+            just _require_confirm_deploy "just apply infra {{ target }} {{ args }}"
+            just plan infra "{{ target }}" {{ args }}
+            just _deploy_resolved "{{ target }}" {{ args }}
             ;;
     esac
 
-# Run local guard checks. Targets: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks.
-check target="all":
+# Deprecated alias for `just plan`.
+cd-plan target *args:
     #!/usr/bin/env bash
-    if [ -z "${IN_NIX_SHELL:-}" ]; then
-        exec nix develop -c just check "{{ target }}"
+    set -euo pipefail
+    just _warn_deprecated "just cd-plan {{ target }} {{ args }}" "just plan {{ target }} {{ args }}"
+    just plan "{{ target }}" {{ args }}
+
+# Deprecated alias for `just apply`.
+cd target *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just cd {{ target }} {{ args }}" "just apply {{ target }} {{ args }}"
+    just apply "{{ target }}" {{ args }}
+
+# Run local guard checks. Targets: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks, recipes.
+check target="all" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${HOMELAB_JUST_STUB_REMOTE:-}" = "1" ]; then
+        echo "Stubbed check: {{ target }} {{ args }}"
+        exit 0
+    fi
+    if [ -z "${HOMELAB_IN_NIX_DEVELOP:-}" ] && [ -z "${IN_NIX_SHELL:-}" ]; then
+        exec env HOMELAB_IN_NIX_DEVELOP=1 nix develop -c just check "{{ target }}" {{ args }}
     fi
 
     case "{{ target }}" in
         all)
-            for item in nix k8s yaml shell actions secrets docs hooks; do
+            for item in nix k8s yaml shell actions secrets docs hooks recipes; do
                 printf '\n==> just check %s\n' "$item"
                 just check "$item"
             done
@@ -130,35 +139,20 @@ check target="all":
         secrets) just _check_secrets ;;
         docs) just _check_docs ;;
         hooks) just _check_hooks ;;
+        recipes) just _check_recipe_contracts ;;
         *)
             echo "Unknown check target: {{ target }}" >&2
-            echo "Expected one of: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks" >&2
+            echo "Expected one of: all, nix, k8s, yaml, shell, actions, secrets, docs, hooks, recipes" >&2
             exit 2
             ;;
     esac
 
-# Deploy hosts, VMs, all nodes, or selected node names.
+# Deprecated direct deploy path. Prefer `just apply infra ...`.
 deploy target="all" *nodes:
     #!/usr/bin/env bash
-    case "{{ target }}" in
-        all) just _deploy_host && just _deploy_vm ;;
-        hosts|host) just _deploy_host ;;
-        vms|vm) just _deploy_vm ;;
-        node|nodes)
-            if [ -z "{{ nodes }}" ]; then
-                echo "Usage: just deploy node <node> [node...]" >&2
-                exit 2
-            fi
-            just _deploy_nodes {{ nodes }}
-            ;;
-        *)
-            if [ -n "{{ nodes }}" ]; then
-                just _deploy_nodes {{ target }} {{ nodes }}
-            else
-                just _deploy_nodes {{ target }}
-            fi
-            ;;
-    esac
+    set -euo pipefail
+    just _warn_deprecated "just deploy {{ target }} {{ nodes }}" "CONFIRM_DEPLOY=homelab just apply infra {{ target }} {{ nodes }}"
+    just apply infra "{{ target }}" {{ nodes }}
 
 # Manage VMs. Actions: status, start, stop, restart, build, provision, destroy, cleanup, sync.
 vm action="status" *names:
@@ -196,13 +190,64 @@ k8s action="verify":
             ;;
     esac
 
-# Manage Flux. Actions: status, bootstrap, reconcile.
+# Show provider-neutral status. Targets: gitops.
+status target="gitops" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ target }}" in
+        gitops)
+            if [ -n "{{ args }}" ]; then
+                echo "Target 'gitops' does not accept extra arguments: {{ args }}" >&2
+                exit 2
+            fi
+            just _gitops_status
+            ;;
+        *)
+            echo "Unknown status target: {{ target }}" >&2
+            echo "Expected one of: gitops" >&2
+            exit 2
+            ;;
+    esac
+
+# Trigger provider-neutral reconciliation. Targets: gitops.
+reconcile target="gitops" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ target }}" in
+        gitops)
+            if [ -n "{{ args }}" ]; then
+                echo "Target 'gitops' does not accept extra arguments: {{ args }}" >&2
+                exit 2
+            fi
+            just _require_confirm_deploy "just reconcile gitops"
+            just _gitops_reconcile
+            ;;
+        *)
+            echo "Unknown reconcile target: {{ target }}" >&2
+            echo "Expected one of: gitops" >&2
+            exit 2
+            ;;
+    esac
+
+# Deprecated provider-specific alias. Prefer `status/reconcile/bootstrap gitops`.
 flux action="status" *args:
     #!/usr/bin/env bash
+    set -euo pipefail
     case "{{ action }}" in
-        status) just _flux_status ;;
-        bootstrap) just _flux_bootstrap {{ args }} ;;
-        reconcile) just _flux_reconcile ;;
+        status)
+            just _warn_deprecated "just flux status" "just status gitops"
+            just _gitops_status
+            ;;
+        bootstrap)
+            just _warn_deprecated "just flux bootstrap {{ args }}" "CONFIRM_DEPLOY=homelab just bootstrap gitops flux {{ args }}"
+            just _require_confirm_deploy "just bootstrap gitops flux {{ args }}"
+            just _flux_bootstrap {{ args }}
+            ;;
+        reconcile)
+            just _warn_deprecated "just flux reconcile" "CONFIRM_DEPLOY=homelab just reconcile gitops"
+            just _require_confirm_deploy "just reconcile gitops"
+            just _gitops_reconcile
+            ;;
         *)
             echo "Unknown Flux action: {{ action }}" >&2
             echo "Expected one of: status, bootstrap, reconcile" >&2
@@ -210,44 +255,204 @@ flux action="status" *args:
             ;;
     esac
 
-# Render one platform app from deploy/platform/apps/*.cue into deploy/k8s/generated/apps/<app>.
-render app="${APP:-tonys-gis}":
-    ./deploy/tools/platform-render.sh render "{{ app }}"
+# Bootstrap provider-backed systems. Targets: gitops flux <owner> [repo] [branch].
+bootstrap target="gitops" provider="flux" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ target }}" in
+        gitops)
+            case "{{ provider }}" in
+                flux)
+                    just _require_confirm_deploy "just bootstrap gitops flux {{ args }}"
+                    just _flux_bootstrap {{ args }}
+                    ;;
+                *)
+                    echo "Unknown GitOps bootstrap provider: {{ provider }}" >&2
+                    echo "Expected one of: flux" >&2
+                    exit 2
+                    ;;
+            esac
+            ;;
+        *)
+            echo "Unknown bootstrap target: {{ target }}" >&2
+            echo "Expected one of: gitops" >&2
+            exit 2
+            ;;
+    esac
 
-# Render all platform apps.
+# Manage repo-owned manifest artifacts. Actions: render, render-all, check, check-all, check-generated, diff, clean.
+manifest action="render" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ action }}" in
+        render|render-all|check|check-all|check-generated|diff|clean) just _manifest "{{ action }}" {{ args }} ;;
+        *)
+            echo "Unknown manifest action: {{ action }}" >&2
+            echo "Expected one of: render, render-all, check, check-all, check-generated, diff, clean" >&2
+            exit 2
+            ;;
+    esac
+
+# Deprecated alias for `just manifest render`.
+render target="manifest" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just render {{ target }} {{ args }}" "just manifest render {{ args }}"
+    case "{{ target }}" in
+        manifest) just _manifest render {{ args }} ;;
+        manifest-all|manifests) just _manifest render-all {{ args }} ;;
+        *) just _manifest render "{{ target }}" {{ args }} ;;
+    esac
+
+# Deprecated alias for `just manifest diff`.
+diff target="manifest" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just diff {{ target }} {{ args }}" "just manifest diff"
+    case "{{ target }}" in
+        manifest|manifests) just _manifest diff {{ args }} ;;
+        *)
+            echo "Unknown diff target: {{ target }}" >&2
+            echo "Expected one of: manifest" >&2
+            exit 2
+            ;;
+    esac
+
+# Deprecated alias for `just manifest clean`.
+clean target="manifest" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just clean {{ target }} {{ args }}" "just manifest clean"
+    case "{{ target }}" in
+        manifest|manifests) just _manifest clean {{ args }} ;;
+        *)
+            echo "Unknown clean target: {{ target }}" >&2
+            echo "Expected one of: manifest" >&2
+            exit 2
+            ;;
+    esac
+
+# Deprecated alias for `just manifest`.
+platform action="render" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just platform {{ action }} {{ args }}" "just manifest {{ action }} {{ args }}"
+    just _manifest "{{ action }}" {{ args }}
+
+[private]
+_manifest action="render" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    split_args() {
+        if [ -n "{{ args }}" ]; then
+            read -r -a args_array <<< "{{ args }}"
+        else
+            args_array=()
+        fi
+    }
+
+    set_app_arg() {
+        if [ "${#args_array[@]}" -gt 1 ]; then
+            echo "Usage: just manifest {{ action }} [app]" >&2
+            exit 2
+        fi
+        if [ "${#args_array[@]}" -eq 1 ]; then
+            platform_app="${args_array[0]}"
+        else
+            platform_app="${APP:-tonys-gis}"
+        fi
+    }
+
+    require_no_args() {
+        if [ "${#args_array[@]}" -ne 0 ]; then
+            echo "Target '{{ action }}' does not accept app names: ${args_array[*]}" >&2
+            exit 2
+        fi
+    }
+
+    split_args
+
+    case "{{ action }}" in
+        render)
+            set_app_arg
+            ./deploy/tools/platform-render.sh render "$platform_app"
+            ;;
+        render-all) require_no_args; ./deploy/tools/platform-render.sh render-all ;;
+        check)
+            set_app_arg
+            ./deploy/tools/platform-render.sh check "$platform_app"
+            ;;
+        check-all) require_no_args; ./deploy/tools/platform-render.sh check-all ;;
+        check-generated) require_no_args; ./deploy/tools/platform-render.sh check-generated ;;
+        diff|diff-generated) require_no_args; ./deploy/tools/platform-render.sh diff-generated ;;
+        clean|clean-generated) require_no_args; ./deploy/tools/platform-render.sh clean-generated ;;
+        *)
+            echo "Unknown manifest action: {{ action }}" >&2
+            echo "Expected one of: render, render-all, check, check-all, check-generated, diff, clean" >&2
+            exit 2
+            ;;
+    esac
+
+# Deprecated alias for `just manifest render-all`.
 render-all:
-    ./deploy/tools/platform-render.sh render-all
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just render-all" "just manifest render-all"
+    just manifest render-all
 
-# Check one platform app render, validation, negative fixtures, and determinism.
+# Deprecated alias for `just manifest check`.
 check-app app="${APP:-tonys-gis}":
-    ./deploy/tools/platform-render.sh check "{{ app }}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just check-app {{ app }}" "just manifest check {{ app }}"
+    just manifest check "{{ app }}"
 
-# Check all platform apps.
+# Deprecated alias for `just manifest check-all`.
 check-all:
-    ./deploy/tools/platform-render.sh check-all
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just check-all" "just manifest check-all"
+    just _manifest check-all
 
-# Verify committed generated output is up to date.
+# Deprecated alias for `just manifest check-generated`.
 check-generated:
-    ./deploy/tools/platform-render.sh check-generated
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just check-generated" "just manifest check-generated"
+    just manifest check-generated
 
-# Show generated output drift.
+# Deprecated alias for `just manifest diff`.
 diff-generated:
-    ./deploy/tools/platform-render.sh diff-generated
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just diff-generated" "just manifest diff"
+    just manifest diff
 
-# Remove generated platform output.
+# Deprecated alias for `just manifest clean`.
 clean-generated:
-    ./deploy/tools/platform-render.sh clean-generated
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _warn_deprecated "just clean-generated" "just manifest clean"
+    just manifest clean
 
 # Connect to node managed by colmena using generated SSH config.
 ssh node:
     ssh -F {{ ssh-config }} {{ node }}
 
-# Garbage collection on all or selected nodes.
-gc *nodes:
+# Garbage collection on all or selected nodes. Targets: all, host-all, vm-all, host <name...>, vm <name...>.
+gc target="all" *nodes:
     #!/usr/bin/env bash
     set -euo pipefail
-    targets=$(if [ -z "{{ nodes }}" ]; then nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r '.[]'; else echo "{{ nodes }}"; fi)
-    for node in $targets; do
+    targets="$(just _topology_targets "{{ target }}" {{ nodes }})"
+    if [ "$targets" = "__all__" ]; then
+        targets="$(nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)' | jq -r 'join(",")')"
+    fi
+
+    IFS=, read -r -a target_array <<< "$targets"
+    for node in "${target_array[@]}"; do
+        if [ -z "$node" ]; then
+            continue
+        fi
         echo "=== GC: $node ==="
         just _ssh "$node" "sudo nix-collect-garbage -d && sudo nix-store --optimize && sudo journalctl --vacuum-time=1d" || echo "Failed"
     done
@@ -261,9 +466,254 @@ install-hooks:
     npm ci
     npx --no-install husky
 
+# Install shell completions for topology-aware homelab just commands.
+install-completions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    install_completion() {
+        local src="$1" dest="$2"
+        mkdir -p "$(dirname "$dest")"
+        if [ -e "$dest" ] && ! cmp -s "$src" "$dest"; then
+            if [ "${CONFIRM_INSTALL_COMPLETIONS:-}" != "homelab" ] && [ "${FORCE:-}" != "1" ]; then
+                echo "Refusing to overwrite existing completion: $dest" >&2
+                echo "Run with CONFIRM_INSTALL_COMPLETIONS=homelab or FORCE=1 to overwrite." >&2
+                exit 2
+            fi
+            cp "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)"
+        fi
+        cp "$src" "$dest"
+    }
+
+    mkdir -p "$HOME/.config/fish/completions" "$HOME/.zfunc"
+    install_completion completions/just-homelab.fish "$HOME/.config/fish/completions/just.fish"
+    install_completion completions/_just-homelab.zsh "$HOME/.zfunc/_just"
+    echo "Installed fish completion: $HOME/.config/fish/completions/just.fish"
+    echo "Installed zsh completion:  $HOME/.zfunc/_just"
+    echo "The homelab-specific completion activates only inside this repository."
+    echo 'For zsh, ensure this is in ~/.zshrc before compinit: fpath=("$HOME/.zfunc" $fpath)'
+
 [private]
 _colmena +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${HOMELAB_JUST_STUB_REMOTE:-}" = "1" ]; then
+        printf 'colmena %s\n' "{{ args }}" >> "${HOMELAB_JUST_STUB_LOG:?}"
+        exit 0
+    fi
     SSH_CONFIG_FILE={{ ssh-config }} nix run --impure .#colmena -- {{ args }}
+
+[private]
+_require_confirm_deploy command:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${CONFIRM_DEPLOY:-}" != "homelab" ]; then
+        echo "Refusing remote mutation without explicit confirmation." >&2
+        echo "Run: CONFIRM_DEPLOY=homelab {{ command }}" >&2
+        exit 2
+    fi
+
+[private]
+_warn_deprecated old new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Deprecated just command: {{ old }}" >&2
+    echo "Use instead: {{ new }}" >&2
+
+[private]
+_gitops_status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "GitOps provider: flux"
+    just _flux_status
+
+[private]
+_gitops_reconcile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "GitOps provider: flux"
+    echo "Action: reconcile"
+    just _flux_reconcile
+
+[private]
+_topology_names kind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ kind }}" in
+        hosts|vms)
+            nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).{{ kind }}' | jq -r '.[]'
+            ;;
+        *)
+            echo "Unknown topology kind: {{ kind }}" >&2
+            echo "Expected one of: hosts, vms" >&2
+            exit 2
+            ;;
+    esac
+
+[private]
+_topology_targets target="all" *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    split_nodes() {
+        if [ -n "{{ nodes }}" ]; then
+            read -r -a nodes_array <<< "{{ nodes }}"
+        else
+            nodes_array=()
+        fi
+    }
+
+    join_kind() {
+        local kind="$1"
+        nix eval --impure --json --expr "builtins.attrNames (import {{ topology }}).${kind}" | jq -r 'join(",")'
+    }
+
+    assert_no_nodes() {
+        if [ "${#nodes_array[@]}" -ne 0 ]; then
+            echo "Target '{{ target }}' does not accept node names: ${nodes_array[*]}" >&2
+            exit 2
+        fi
+    }
+
+    assert_some_nodes() {
+        local usage="$1"
+        if [ "${#nodes_array[@]}" -eq 0 ]; then
+            echo "Usage: $usage" >&2
+            exit 2
+        fi
+    }
+
+    assert_known() {
+        local kind="$1"
+        shift
+        local allowed_json
+        allowed_json="$(nix eval --impure --json --expr "builtins.attrNames (import {{ topology }}).${kind}")"
+
+        for node in "$@"; do
+            if ! jq -e --arg node "$node" 'index($node) != null' <<< "$allowed_json" >/dev/null; then
+                echo "Unknown ${kind%?}: $node" >&2
+                echo "Known ${kind}: $(jq -r 'join(", ")' <<< "$allowed_json")" >&2
+                exit 2
+            fi
+        done
+    }
+
+    join_nodes() {
+        local IFS=,
+        echo "$*"
+    }
+
+    split_nodes
+
+    case "{{ target }}" in
+        all)
+            assert_no_nodes
+            echo "__all__"
+            ;;
+        host-all|hosts)
+            assert_no_nodes
+            join_kind hosts
+            ;;
+        vm-all|vms)
+            assert_no_nodes
+            join_kind vms
+            ;;
+        host)
+            assert_some_nodes "<recipe> host <host> [host...]"
+            assert_known hosts "${nodes_array[@]}"
+            join_nodes "${nodes_array[@]}"
+            ;;
+        vm)
+            assert_some_nodes "<recipe> vm <vm> [vm...]"
+            assert_known vms "${nodes_array[@]}"
+            join_nodes "${nodes_array[@]}"
+            ;;
+        node|nodes)
+            assert_some_nodes "<recipe> node <node> [node...]"
+            all_json="$(nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)')"
+            for node in "${nodes_array[@]}"; do
+                if ! jq -e --arg node "$node" 'index($node) != null' <<< "$all_json" >/dev/null; then
+                    echo "Unknown node: $node" >&2
+                    echo "Known nodes: $(jq -r 'join(", ")' <<< "$all_json")" >&2
+                    exit 2
+                fi
+            done
+            echo "Deprecated: use '<recipe> host <name>' or '<recipe> vm <name>' instead of '<recipe> node <name>'." >&2
+            join_nodes "${nodes_array[@]}"
+            ;;
+        *)
+            nodes_array=("{{ target }}")
+            if [ -n "{{ nodes }}" ]; then
+                read -r -a extra_nodes <<< "{{ nodes }}"
+                nodes_array+=("${extra_nodes[@]}")
+            fi
+            all_json="$(nix eval --impure --json --expr 'let t = import {{ topology }}; in (builtins.attrNames t.hosts) ++ (builtins.attrNames t.vms)')"
+            for node in "${nodes_array[@]}"; do
+                if ! jq -e --arg node "$node" 'index($node) != null' <<< "$all_json" >/dev/null; then
+                    echo "Unknown topology target: {{ target }}" >&2
+                    echo "Expected one of: all, host-all, vm-all, host, vm" >&2
+                    echo "Known legacy node names: $(jq -r 'join(", ")' <<< "$all_json")" >&2
+                    exit 2
+                fi
+            done
+            echo "Deprecated: use '<recipe> host <name>' or '<recipe> vm <name>' instead of implicit node names." >&2
+            join_nodes "${nodes_array[@]}"
+            ;;
+    esac
+
+[private]
+_infra_plan target="all" *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _topology_targets "{{ target }}" {{ nodes }} >/dev/null
+    just check
+    case "{{ target }}" in
+        all)
+            just _deploy_host_plan
+            just _deploy_vm_plan
+            ;;
+        host-all|hosts)
+            just _deploy_host_plan
+            ;;
+        vm-all|vms)
+            just _deploy_vm_plan
+            ;;
+        host|vm|node|nodes)
+            just _deploy_resolved_plan "{{ target }}" {{ nodes }}
+            ;;
+        *)
+            just _deploy_resolved_plan "{{ target }}" {{ nodes }}
+            ;;
+    esac
+
+[private]
+_deploy_targets target="all" *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _topology_targets "{{ target }}" {{ nodes }}
+
+[private]
+_deploy_resolved target="all" *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    targets="$(just _topology_targets "{{ target }}" {{ nodes }})"
+    if [ "$targets" = "__all__" ]; then
+        just _deploy_host
+        just _deploy_vm
+    else
+        just _colmena apply --on "$targets" --verbose
+    fi
+
+[private]
+_deploy_resolved_plan target *nodes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    targets="$(just _topology_targets "{{ target }}" {{ nodes }})"
+    if [ "$targets" = "__all__" ]; then
+        just _deploy_host_plan
+        just _deploy_vm_plan
+    else
+        echo "Target: nodes ($targets)"
+        just _colmena apply dry-activate --no-keys --on "$targets" --verbose
+    fi
 
 [private]
 _ssh node +cmd:
@@ -484,22 +934,48 @@ _check_secrets:
 [private]
 _check_docs:
     #!/usr/bin/env bash
-    docs=(
-        README.md
-        ansible/README.md
-        deploy/k8s/README.md
-        deploy/k8s/docs/bookorbit-onboarding.md
-        docs/runbooks/magicdns-gitops-onboarding.md
-    )
-    allowed='^(ci|cd|cd-plan|check|check-app|check-all|check-generated|clean-generated|deploy|diff-generated|render|render-all|vm|k8s|flux|ssh|gc|update|install-hooks)$'
-    legacy='just (check-(ci|nix|k8s|yaml|shell|actions|secrets)|deploy-(host|vm|node|all)|vm-(build|provision|start|stop|restart|destroy|cleanup|sync|status)|k8s-(deploy|reset-deploy|bootstrap|clean|verify)|flux-(bootstrap|status|reconcile)|status|net|build)\b'
+    set -euo pipefail
+    mapfile -t docs < <(rg --files -g '*.md')
+    allowed='^(plan|apply|check|manifest|bootstrap|status|reconcile|vm|k8s|ssh|gc|update|install-completions|install-hooks)$'
+    legacy='just (ci|deploy|cd|cd-plan|check-app|check-all|check-generated|clean-generated|diff-generated|platform|render-all|flux|check-(ci|nix|k8s|yaml|shell|actions|secrets)|deploy-(host|vm|node|all)|vm-(build|provision|start|stop|restart|destroy|cleanup|sync|status)|k8s-(deploy|reset-deploy|bootstrap|clean|verify)|flux-(bootstrap|status|reconcile)|net|build)\b'
+
+    require_readme_topology_vms_current() {
+        local expected actual
+        expected="$(
+            nix eval --impure --json --expr '(import ./network/topology.nix).vms' |
+                jq -r 'to_entries[] | "\(.key) \(.value.ip)"' |
+                sort
+        )"
+        actual="$(
+            rg --only-matching 'k8s-(master|worker)-[0-9]+<br/>[0-9.]+' README.md |
+                sed 's#<br/># #' |
+                sort -u
+        )"
+        if [ "$actual" != "$expected" ]; then
+            echo "README architecture VM/IP list does not match network/topology.nix." >&2
+            echo "Expected:" >&2
+            printf '%s\n' "$expected" >&2
+            echo "Actual:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+        fi
+    }
 
     if rg -n "$legacy" "${docs[@]}"; then
         echo "Docs still reference legacy just recipes." >&2
         exit 1
     fi
 
-    mapfile -t recipes < <(rg --only-matching --no-filename '\bjust[[:space:]]+[A-Za-z0-9_-]+' "${docs[@]}" | awk '{print $2}' | sort -u)
+    require_readme_topology_vms_current
+
+    mapfile -t recipes < <(
+        {
+            rg --no-filename '^[[:space:]]*(CONFIRM_[A-Z_]+=homelab[[:space:]]+)?just[[:space:]]+[A-Za-z0-9_-]+' "${docs[@]}" |
+                sed -E 's/^[[:space:]]*(CONFIRM_[A-Z_]+=homelab[[:space:]]+)?just[[:space:]]+([A-Za-z0-9_-]+).*/\2/' || true
+            rg --only-matching --no-filename '`(CONFIRM_[A-Z_]+=homelab[[:space:]]+)?just[[:space:]]+[A-Za-z0-9_-]+' "${docs[@]}" |
+                sed -E 's/^`(CONFIRM_[A-Z_]+=homelab[[:space:]]+)?just[[:space:]]+([A-Za-z0-9_-]+)/\2/' || true
+        } | sort -u
+    )
     for recipe in "${recipes[@]}"; do
         if ! [[ "$recipe" =~ $allowed ]]; then
             echo "Docs reference unknown public just recipe: $recipe" >&2
@@ -520,39 +996,180 @@ _check_hooks:
     fi
 
 [private]
+_check_recipe_contracts:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    run() {
+        printf '\n==> %s\n' "$*"
+        "$@"
+    }
+
+    expect() {
+        local expected="$1"
+        shift
+        local actual
+        actual="$("$@")"
+        if [ "$actual" != "$expected" ]; then
+            echo "Expected: $expected" >&2
+            echo "Actual:   $actual" >&2
+            exit 1
+        fi
+    }
+
+    expect_fail() {
+        local out err
+        out="$(mktemp)"
+        err="$(mktemp)"
+        if "$@" >"$out" 2>"$err"; then
+            echo "Expected failure, command succeeded: $*" >&2
+            cat "$out" >&2
+            cat "$err" >&2
+            rm -f "$out" "$err"
+            exit 1
+        fi
+        rm -f "$out" "$err"
+    }
+
+    expect_confirm_failure() {
+        env -u CONFIRM_DEPLOY \
+            HOMELAB_JUST_STUB_REMOTE=1 \
+            HOMELAB_JUST_STUB_LOG="$stub_log" \
+            "$@"
+    }
+
+    expect_log() {
+        local pattern="$1"
+        local log="$2"
+        if ! grep -Fqx "$pattern" "$log"; then
+            echo "Missing expected stub log line: $pattern" >&2
+            echo "Actual log:" >&2
+            cat "$log" >&2
+            exit 1
+        fi
+    }
+
+    run zsh -n completions/_just-homelab.zsh
+    run fish -n completions/just-homelab.fish
+
+    summary="$(just --summary | tr ' ' '\n')"
+    for recipe in plan apply manifest bootstrap status reconcile ci cd cd-plan deploy flux render render-all check-app check-all check-generated diff diff-generated clean clean-generated platform; do
+        if ! grep -qx "$recipe" <<< "$summary"; then
+            echo "Missing public recipe: $recipe" >&2
+            exit 1
+        fi
+    done
+
+    expect "homelab-1" just _topology_targets host-all
+    expect "homelab-1" just _topology_targets host homelab-1
+    expect "homelab-1" just _topology_targets homelab-1
+    expect "k8s-master-1" just _topology_targets vm k8s-master-1
+    expect "k8s-master-1" just _topology_targets k8s-master-1
+    expect "k8s-master-1,k8s-worker-1,k8s-worker-2" just _topology_targets vm-all
+    expect "__all__" just _topology_targets all
+
+    expect "homelab-1" just _deploy_targets host homelab-1
+
+    stub_log="$(mktemp)"
+    contract_home="$(mktemp -d)"
+    trap 'rm -f "$stub_log"; rm -rf "$contract_home"' EXIT
+
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" CONFIRM_DEPLOY=homelab just apply infra host homelab-1
+    expect_log "colmena apply dry-activate --no-keys --on homelab-1 --verbose" "$stub_log"
+    expect_log "colmena apply --on homelab-1 --verbose" "$stub_log"
+
+    : > "$stub_log"
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" just plan homelab-1
+    expect_log "colmena apply dry-activate --no-keys --on homelab-1 --verbose" "$stub_log"
+
+    : > "$stub_log"
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" CONFIRM_DEPLOY=homelab just apply homelab-1
+    expect_log "colmena apply dry-activate --no-keys --on homelab-1 --verbose" "$stub_log"
+    expect_log "colmena apply --on homelab-1 --verbose" "$stub_log"
+
+    : > "$stub_log"
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" CONFIRM_DEPLOY=homelab just apply infra
+    expect_log "colmena apply --on homelab-1 --verbose" "$stub_log"
+    expect_log "colmena apply --on k8s-master-1,k8s-worker-1,k8s-worker-2 --verbose" "$stub_log"
+
+    : > "$stub_log"
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" CONFIRM_DEPLOY=homelab just apply gitops
+    expect_log "flux reconcile" "$stub_log"
+
+    : > "$stub_log"
+    run env HOMELAB_JUST_STUB_REMOTE=1 HOMELAB_JUST_STUB_LOG="$stub_log" CONFIRM_DEPLOY=homelab just bootstrap gitops flux vanillacake369 tonys-homelab main
+    expect_log "flux bootstrap owner=vanillacake369 repo=tonys-homelab branch=main" "$stub_log"
+
+    mkdir -p "$contract_home/.config/fish/completions" "$contract_home/.zfunc"
+    printf 'foreign fish completion\n' > "$contract_home/.config/fish/completions/just.fish"
+    printf 'foreign zsh completion\n' > "$contract_home/.zfunc/_just"
+    expect_fail env HOME="$contract_home" just install-completions
+    run env HOME="$contract_home" CONFIRM_INSTALL_COMPLETIONS=homelab just install-completions
+    test -e "$contract_home/.config/fish/completions/just.fish"
+    find "$contract_home/.config/fish/completions" -maxdepth 1 -name 'just.fish.bak.*' | grep -q .
+
+    expect_fail just _topology_targets host k8s-master-1
+    expect_fail just _topology_targets vm homelab-1
+    expect_fail just _topology_targets host unknown
+    expect_fail just _topology_targets vm unknown
+    expect_fail just _topology_targets unknown
+    expect_fail just _topology_targets host-all homelab-1
+    expect_fail just plan infra host unknown
+    expect_fail just plan infra host
+    expect_fail expect_confirm_failure just deploy host homelab-1
+    expect_fail expect_confirm_failure just apply gitops
+    expect_fail just apply gitops homelab-1
+    expect_fail just status gitops extra
+    expect_fail expect_confirm_failure just reconcile gitops
+    expect_fail expect_confirm_failure just bootstrap gitops flux
+    expect_fail expect_confirm_failure just flux reconcile
+    expect_fail just platform nope
+    expect_fail just manifest render a b
+    expect_fail just manifest render-all tonys-gis
+    expect_fail just manifest check a b
+    expect_fail just manifest diff tonys-gis
+
+[private]
 _deploy_host:
     #!/usr/bin/env bash
-    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
+    set -euo pipefail
+    targets="$(just _deploy_targets host-all)"
     just _colmena apply --on "$targets" --verbose
 
 [private]
 _deploy_host_plan:
     #!/usr/bin/env bash
-    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).hosts' | jq -r 'join(",")')
+    set -euo pipefail
+    targets="$(just _deploy_targets host-all)"
     echo "Target: hosts ($targets)"
     just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
 [private]
 _deploy_vm:
     #!/usr/bin/env bash
-    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
+    set -euo pipefail
+    targets="$(just _deploy_targets vm-all)"
     just _colmena apply --on "$targets" --verbose
 
 [private]
 _deploy_vm_plan:
     #!/usr/bin/env bash
-    targets=$(nix eval --impure --json --expr 'builtins.attrNames (import {{ topology }}).vms' | jq -r 'join(",")')
+    set -euo pipefail
+    targets="$(just _deploy_targets vm-all)"
     echo "Target: vms ($targets)"
     just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
 [private]
 _deploy_nodes +nodes:
-    just _colmena apply --on "$(echo "{{ nodes }}" | tr ' ' ',')" --verbose
+    #!/usr/bin/env bash
+    set -euo pipefail
+    targets="$(just _deploy_targets node {{ nodes }})"
+    just _colmena apply --on "$targets" --verbose
 
 [private]
 _deploy_nodes_plan +nodes:
     #!/usr/bin/env bash
-    targets="$(echo "{{ nodes }}" | tr ' ' ',')"
+    set -euo pipefail
+    targets="$(just _deploy_targets node {{ nodes }})"
     echo "Target: nodes ($targets)"
     just _colmena apply dry-activate --no-keys --on "$targets" --verbose
 
@@ -736,6 +1353,10 @@ _k8s_verify:
 _flux_bootstrap owner repo="tonys-homelab" branch="main":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ "${HOMELAB_JUST_STUB_REMOTE:-}" = "1" ]; then
+        printf 'flux bootstrap owner=%s repo=%s branch=%s\n' "{{ owner }}" "{{ repo }}" "{{ branch }}" >> "${HOMELAB_JUST_STUB_LOG:?}"
+        exit 0
+    fi
     master_ip=$(just _master_ip)
     printf '%s\n' "$GITHUB_TOKEN" | ssh -F {{ ssh-config }} "$master_ip" "read -r GITHUB_TOKEN; export GITHUB_TOKEN; flux bootstrap github \
         --owner={{ owner }} \
@@ -747,11 +1368,21 @@ _flux_bootstrap owner repo="tonys-homelab" branch="main":
 [private]
 _flux_status:
     #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${HOMELAB_JUST_STUB_REMOTE:-}" = "1" ]; then
+        printf 'flux status\n' >> "${HOMELAB_JUST_STUB_LOG:?}"
+        exit 0
+    fi
     master_ip=$(just _master_ip)
     ssh -F {{ ssh-config }} "$master_ip" "flux get all"
 
 [private]
 _flux_reconcile:
     #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${HOMELAB_JUST_STUB_REMOTE:-}" = "1" ]; then
+        printf 'flux reconcile\n' >> "${HOMELAB_JUST_STUB_LOG:?}"
+        exit 0
+    fi
     master_ip=$(just _master_ip)
     ssh -F {{ ssh-config }} "$master_ip" "flux reconcile source git flux-system && flux reconcile kustomization flux-system"

@@ -71,7 +71,7 @@ git commit -m "chore(bookorbit): rotate admin and alina passwords"
 git push
 
 # FluxCD 강제 동기화 트리거
-just flux reconcile
+CONFIRM_DEPLOY=homelab just reconcile gitops
 # (또는 특정 kustomization만 강제 동기화)
 ssh -F .cache/ssh-config k8s-master-1 "flux reconcile kustomization bookorbit -n flux-system --with-source"
 
@@ -87,7 +87,7 @@ ssh -F .cache/ssh-config k8s-master-1 "kubectl rollout restart deployment/bookor
 클러스터에 배포된 리소스들의 상태를 조회하려면 아래 `just` 레시피들을 사용합니다.
 ```bash
 # 전체 FluxCD 동기화 상태 요약 조회
-just flux status
+just status gitops
 
 # 마스터 노드에 ssh 접속하여 kubectl 직접 조회
 ssh -F .cache/ssh-config k8s-master-1 "kubectl get pods -n bookorbit"

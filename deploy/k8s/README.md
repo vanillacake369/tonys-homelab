@@ -84,20 +84,20 @@ deploy/k8s/
 export GITHUB_TOKEN=ghp_xxxxx
 
 # FluxCD 부트스트랩 (justfile 레시피)
-just flux bootstrap <github-owner> <repo-name> <branch>
+CONFIRM_DEPLOY=homelab just bootstrap gitops flux <github-owner> <repo-name> <branch>
 
 # 예시
-just flux bootstrap vanillacake369 tonys-homelab main
+CONFIRM_DEPLOY=homelab just bootstrap gitops flux vanillacake369 tonys-homelab main
 ```
 
 ### 상태 확인
 
 ```bash
 # 전체 FluxCD 상태
-just flux status
+just status gitops
 
 # 수동 reconcile 트리거
-just flux reconcile
+CONFIRM_DEPLOY=homelab just reconcile gitops
 
 # 클러스터에서 직접 확인
 ssh -F .cache/ssh-config k8s-master-1 "flux get all"
@@ -260,6 +260,6 @@ spec:
 
 | 레시피 | 설명 |
 |---|---|
-| `just flux bootstrap <owner> [repo] [branch]` | FluxCD 초기 설치 (GITHUB_TOKEN 필요) |
-| `just flux status` | 전체 Flux 리소스 상태 조회 |
-| `just flux reconcile` | Git 소스 + Kustomization 수동 동기화 |
+| `CONFIRM_DEPLOY=homelab just bootstrap gitops flux <owner> [repo] [branch]` | FluxCD 초기 설치 (GITHUB_TOKEN 필요) |
+| `just status gitops` | 전체 Flux 리소스 상태 조회 |
+| `CONFIRM_DEPLOY=homelab just reconcile gitops` | Git 소스 + Kustomization 수동 동기화 |

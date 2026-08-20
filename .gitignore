@@ -17,10 +17,15 @@ hosts/*/hardware-configuration.nix
 # Secrets and keys
 *.key
 *.pem
+secrets/*.pub
+secrets/ssh-public-key.txt
 secrets/vm-master.key
 kubeconfig
 kubeconfig.*
 # lib/homelab-constants.nix
+
+# Local/generated helper output
+k3d/
 
 # Editor files
 .vscode/

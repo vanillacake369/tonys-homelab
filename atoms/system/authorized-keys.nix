@@ -19,7 +19,9 @@
     (readKey ../../secrets/limjihoon.pub)
     ++ (readKey ../../secrets/homelab-1.pub);
 
-  ipadHomelabKeys = readKey ../../secrets/ipad-homelab.pub;
+  mobileHomelabKeys =
+    (readKey ../../secrets/ipad-homelab.pub)
+    ++ (readKey ../../secrets/iphone-homelab.pub);
 in {
   users.users = lib.mkMerge [
     {
@@ -28,7 +30,7 @@ in {
     (lib.mkIf (config.node.user != "root") {
       "${config.node.user}".openssh.authorizedKeys.keys =
         infraKeys
-        ++ lib.optionals (config.node.hostType == "physical") ipadHomelabKeys;
+        ++ lib.optionals (config.node.hostType == "physical") mobileHomelabKeys;
     })
   ];
 }

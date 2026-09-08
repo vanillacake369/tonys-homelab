@@ -97,7 +97,6 @@
           kubectl
           kustomize
           kyverno
-          nodejs_24
           shellcheck
           statix
           yamllint

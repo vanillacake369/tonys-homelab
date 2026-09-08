@@ -17,6 +17,11 @@ hosts/*/hardware-configuration.nix
 # Secrets and keys
 *.key
 *.pem
+**/secret.enc.yaml
+**/setup-secret.enc.yaml
+secrets/*.yaml
+!**/secret.example.yaml
+!**/secrets.example.yaml
 secrets/*.pub
 secrets/ssh-public-key.txt
 secrets/vm-master.key

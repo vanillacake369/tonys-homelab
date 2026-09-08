@@ -28,7 +28,9 @@
       builtins.filter (key: key != "")
       (map (key: lib.removeSuffix "\r" key) (lib.splitString "\n" (builtins.readFile file)))
     else [];
-  ipadHomelabKeys = readKeyLines ../secrets/ipad-homelab.pub;
+  mobileHomelabKeys =
+    (readKeyLines ../secrets/ipad-homelab.pub)
+    ++ (readKeyLines ../secrets/iphone-homelab.pub);
 
   unique = values: builtins.length values == builtins.length (lib.unique values);
   requiredVmFields = ["ip" "mac" "tapId" "parentHost" "role" "cluster" "network" "mem" "vcpu" "diskSize"];
@@ -131,8 +133,8 @@
     (assert' "remote-access: homelab deployment user remains limjihoon" (homelabConfig.node.user == "limjihoon"))
     (assert' "remote-access: deployment user keeps passwordless sudo for Colmena" (!homelabConfig.security.sudo.wheelNeedsPassword))
     (assert' "remote-access: remote user is not declared" (!(homelabConfig.users.users ? remote)))
-    (assert' "remote-access: ipad homelab keys are assigned to limjihoon" (builtins.all (key: builtins.elem key homelabConfig.users.users.limjihoon.openssh.authorizedKeys.keys) ipadHomelabKeys))
-    (assert' "remote-access: ipad homelab keys are not assigned to root" (builtins.all (key: !(builtins.elem key homelabConfig.users.users.root.openssh.authorizedKeys.keys)) ipadHomelabKeys))
+    (assert' "remote-access: mobile homelab keys are assigned to limjihoon" (builtins.all (key: builtins.elem key homelabConfig.users.users.limjihoon.openssh.authorizedKeys.keys) mobileHomelabKeys))
+    (assert' "remote-access: mobile homelab keys are not assigned to root" (builtins.all (key: !(builtins.elem key homelabConfig.users.users.root.openssh.authorizedKeys.keys)) mobileHomelabKeys))
     (assert' "remote-access: tailscale remains enabled" homelabConfig.services.tailscale.enable)
     (assert' "remote-access: tailscale ssh flag is removed" (!(builtins.elem "--ssh" homelabConfig.services.tailscale.extraSetFlags)))
   ];

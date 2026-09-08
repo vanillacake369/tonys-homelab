@@ -5,21 +5,20 @@ result-*
 # Auto-generated SSH config (just _gen-ssh-config)
 .cache/
 
-# Node tooling for repository hooks
-node_modules/
-npm-debug.log*
-.husky/_/
-.npm/
-
 # Hardware configuration (machine-specific)
 hosts/*/hardware-configuration.nix
 
 # Secrets and keys
 *.key
 *.pem
-**/secret.enc.yaml
-**/setup-secret.enc.yaml
-secrets/*.yaml
+# SOPS-encrypted payloads are deploy inputs and may be committed after review.
+!**/*.enc.yaml
+!secrets/secrets.yaml
+# Local plaintext secret work files must stay out of Git.
+secrets/*.plain.yaml
+secrets/*.local.yaml
+secrets/*.decrypted.yaml
+secrets/*.tmp.yaml
 !**/secret.example.yaml
 !**/secrets.example.yaml
 secrets/*.pub

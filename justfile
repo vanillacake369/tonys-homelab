@@ -463,8 +463,8 @@ update:
 
 # Install repository-managed git hooks locally.
 install-hooks:
-    npm ci
-    npx --no-install husky
+    git config core.hooksPath .githooks
+    echo "Installed git hooks: .githooks"
 
 # Install shell completions for topology-aware homelab just commands.
 install-completions:
@@ -842,7 +842,7 @@ _check_k8s:
 _check_shell:
     #!/usr/bin/env bash
     shell_roots=()
-    for candidate in deploy/tools .githooks .husky; do
+    for candidate in deploy/tools .githooks; do
         if [ -d "$candidate" ]; then
             shell_roots+=("$candidate")
         fi
@@ -850,9 +850,7 @@ _check_shell:
 
     mapfile -t shell_files < <(
         if [ "${#shell_roots[@]}" -gt 0 ]; then
-            find "${shell_roots[@]}" -maxdepth 2 -type f \
-                -not -path '.husky/_/*' \
-                -not -path '.husky/_' | sort
+            find "${shell_roots[@]}" -maxdepth 2 -type f | sort
         fi
     )
 
@@ -987,10 +985,15 @@ _check_docs:
 _check_hooks:
     #!/usr/bin/env bash
     set -euo pipefail
-    npm ci --ignore-scripts
-    printf '%s\n' 'fix(cni): validate local commit convention' | npx --no-install commitlint
-    if printf '%s\n' 'bad commit message' | npx --no-install commitlint >/tmp/tonys-homelab-commitlint.err 2>&1; then
-        echo "commitlint accepted an invalid sample" >&2
+    tmp_msg="$(mktemp)"
+    trap 'rm -f "$tmp_msg"' EXIT
+
+    printf '%s\n' 'fix(cni): validate local commit convention' > "$tmp_msg"
+    .githooks/commit-msg "$tmp_msg"
+
+    printf '%s\n' 'bad commit message' > "$tmp_msg"
+    if .githooks/commit-msg "$tmp_msg" >/tmp/tonys-homelab-commitlint.err 2>&1; then
+        echo "commit-msg hook accepted an invalid sample" >&2
         cat /tmp/tonys-homelab-commitlint.err >&2
         exit 1
     fi

@@ -1,6 +1,8 @@
-{pkgs, ...}: {
+{pkgs, ...}: let
+  k8sPorts = import ../../atoms/k8s/ports.nix;
+in {
   imports = [
-    ./common.nix
+    ../profiles/base.nix
     ../../atoms/k8s/container-runtime.nix
     ../../atoms/k8s/kubelet-service.nix
     ../../atoms/k8s/cni-cilium.nix
@@ -15,6 +17,6 @@
     kyverno
   ];
 
-  # K8s master 포트 (network-base의 [22]에 병합됨)
-  networking.firewall.allowedTCPPorts = [6443 2379 2380 10250 10251 10252];
+  # K8s master control-plane ports; SSH comes from network-base.
+  networking.firewall.allowedTCPPorts = k8sPorts.masterTcp;
 }

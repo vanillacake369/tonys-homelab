@@ -23,10 +23,12 @@ flowchart TB
   Contract["interface.nix<br/>(IaC Contract)"]
 
   subgraph Roles["roles/"]
-    Common["common.nix"]
-    Host["host.nix"]
     Master["k8s-master.nix"]
     Worker["k8s-worker.nix"]
+  end
+
+  subgraph Profiles["profiles/"]
+    Base["base.nix"]
   end
 
   subgraph Physical["physical/"]
@@ -42,25 +44,24 @@ flowchart TB
   Contract -->|"options.node.*"| M1
   Contract -->|"options.node.*"| W1
 
-  Common -->|"import"| Host
-  Common -->|"import"| Master
-  Common -->|"import"| Worker
+  Base -->|"import"| H1
+  Base -->|"import"| Master
+  Base -->|"import"| Worker
 
-  Host -->|"import"| H1
   Master -->|"import"| M1
   Worker -->|"import"| W1
 
   style Contract fill:#ffd,stroke:#333
-  style Common fill:#dfd,stroke:#333
+  style Base fill:#dfd,stroke:#333
 ```
 
 | 파일/디렉토리 | 역할 |
 |---------------|------|
 | `interface.nix` | IaC Contract — `node.{ip, role, hostType, mac, user, parentHost}` 옵션 + assertion |
-| `roles/common.nix` | 전 노드 공통 Atom (nix, locale, shell, ssh, firewall, authorized-keys) |
-| `roles/host.nix` | 물리 호스트 전용 (common + sops + tailscale) |
-| `roles/k8s-master.nix` | K8s master (common + k8s atoms + master 방화벽 포트) |
-| `roles/k8s-worker.nix` | K8s worker (common + k8s atoms + worker 방화벽 포트) |
+| `profiles/base.nix` | 전 노드 공통 Atom (nix, locale, shell, ssh, firewall, authorized-keys) |
+| `roles/common.nix` | legacy compatibility shim → `profiles/base.nix` |
+| `roles/k8s-master.nix` | K8s master (`base` + k8s atoms + master 방화벽 포트) |
+| `roles/k8s-worker.nix` | K8s worker (`base` + k8s atoms + worker 방화벽 포트) |
 | `physical/*.nix` | 물리 호스트 구성 (bridge, VLAN, TAP, NAT) |
 | `vms/*.nix` | VM 노드 구성 (libvirt/QEMU 기반, systemd-networkd) |
 

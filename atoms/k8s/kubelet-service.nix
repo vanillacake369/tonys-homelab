@@ -68,6 +68,8 @@ in {
   # NixOS 기본 K8s 서비스 비활성화 (kubeadm 직접 제어를 위해)
   services.kubernetes.roles = lib.mkForce [];
   services.kubernetes.kubelet.enable = lib.mkForce false;
+  # kubelet defaults to failSwapOn=true. Kubernetes nodes must not activate swap.
+  swapDevices = lib.mkForce [];
 
   # kubeadm/join expects these paths to exist even before kubelet starts.
   # (Our kubelet unit may be skipped until kubeadm writes config.yaml.)

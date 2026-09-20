@@ -1,41 +1,46 @@
 # Node: homelab-1 (Physical Host)
 {
-  config,
   lib,
   pkgs,
   ...
 }: let
   network = import ../../network/topology.nix;
+  projections = import ../../network/projections.nix {topology = network;};
+
+  hostName = "homelab-1";
+  host = network.hosts.${hostName};
+
   externalIf = "vmbr0";
   vlans = network.vlans;
-  hostVlans = network.hosts.homelab-1.vlans;
   mgmtVlanId = vlans.management.id;
   svcVlanId = vlans.services.id;
+  mgmtIf = "vlan${toString mgmtVlanId}";
+  svcIf = "vlan${toString svcVlanId}";
+  uplinkAddress = "${host.uplink.ip}/${toString host.uplink.prefixLength}";
 
   # libvirt VM 인프라 (pure function — 값은 여기서 주입)
   libvirtInfra = import ../../lib/mk-libvirt.nix {
     inherit lib pkgs;
-    vms = network.vmsForHost "homelab-1";
+    vms = projections.vmsForHost hostName;
     bridge = externalIf;
     vlanId = svcVlanId;
   };
-
-  clientSecret = config.sops.secrets."tailscale/clientSecret".path;
 in {
   imports = [
     ../interface.nix
-    ../roles/common.nix
+    ../profiles/base.nix
     ../../atoms/user/limjihoon.nix
     ../../atoms/system/git.nix
+    ../../atoms/network/tailscale.nix
     ../../atoms/network/ssh-client.nix
     ./disko-config-homelab-1.nix
   ];
 
   node = {
-    ip = network.wan.host;
-    role = "host";
+    ip = host.uplink.ip;
+    role = host.role;
     hostType = "physical";
-    user = "limjihoon";
+    user = host.user;
   };
 
   # ===========================================================================
@@ -63,7 +68,6 @@ in {
 
   environment.systemPackages = with pkgs; [
     virt-manager
-    tailscale
     amdgpu_top
     clinfo
     libva-utils
@@ -74,47 +78,21 @@ in {
   ];
 
   # VM Domain 자동 정의 + VLAN hook (mk-libvirt.nix 주입)
-  # Tailscale autoconnect 과 함께 처리
-  systemd.services =
-    libvirtInfra.domainServices
-    // {
-      tailscale-autoconnect = {
-        description = "Automatic connection to Tailscale";
-        after = ["network-online.target" "tailscale.service"];
-        wants = ["network-online.target" "tailscale.service"];
-        wantedBy = ["multi-user.target"];
-        path = [pkgs.tailscale pkgs.jq pkgs.coreutils];
-        serviceConfig = {
-          Type = "oneshot";
-          Restart = "on-failure";
-          RestartSec = "10s";
-        };
-        script = ''
-          SECRET=$(cat "${clientSecret}")
-          tailscale up --reset --authkey="$SECRET" --netfilter-mode=nodivert --advertise-exit-node
-        '';
-      };
-    };
+  systemd.services = libvirtInfra.domainServices;
 
   systemd.tmpfiles.rules = libvirtInfra.hookRules;
 
   # ===========================================================================
   # Tailscale
   # ===========================================================================
-  sops.secrets."tailscale/clientSecret" = {};
-
   boot.kernel.sysctl = {
     "net.ipv4.ip_forward" = 1;
     "net.ipv6.conf.all.forwarding" = 1;
   };
 
-  services.tailscale = {
-    enable = true;
-    extraSetFlags = [
-      "--netfilter-mode=nodivert"
-      "--advertise-exit-node"
-    ];
-  };
+  services.tailscale.extraUpFlags = [
+    "--advertise-exit-node"
+  ];
 
   # ===========================================================================
   # 네트워크
@@ -123,13 +101,11 @@ in {
     nat = {
       enable = true;
       externalInterface = externalIf;
-      internalInterfaces = ["vlan10" "vlan20"];
+      internalInterfaces = [mgmtIf svcIf];
       enableIPv6 = false;
     };
 
     firewall = {
-      allowedUDPPorts = [config.services.tailscale.port];
-      trustedInterfaces = ["tailscale0"];
       extraCommands = ''
         iptables -t nat -A POSTROUTING -s ${network.tailscale.network} -o ${externalIf} -j MASQUERADE
       '';
@@ -144,7 +120,7 @@ in {
   # ===========================================================================
   systemd.network = {
     netdevs = {
-      "10-vmbr0" = {
+      "10-${externalIf}" = {
         netdevConfig = {
           Name = externalIf;
           Kind = "bridge";
@@ -152,16 +128,16 @@ in {
         bridgeConfig.VLANFiltering = true;
       };
 
-      "20-vlan10" = {
+      "20-${mgmtIf}" = {
         netdevConfig = {
-          Name = "vlan10";
+          Name = mgmtIf;
           Kind = "vlan";
         };
         vlanConfig.Id = mgmtVlanId;
       };
-      "20-vlan20" = {
+      "20-${svcIf}" = {
         netdevConfig = {
-          Name = "vlan20";
+          Name = svcIf;
           Kind = "vlan";
         };
         vlanConfig.Id = svcVlanId;
@@ -170,17 +146,17 @@ in {
 
     networks = {
       "05-physical" = {
-        matchConfig.Name = "enp1s0";
+        matchConfig.Name = host.uplink.interface;
         networkConfig.Bridge = externalIf;
         linkConfig.RequiredForOnline = "carrier";
       };
 
-      "10-vmbr0" = {
+      "10-${externalIf}" = {
         matchConfig.Name = externalIf;
-        vlan = ["vlan10" "vlan20"];
-        address = ["${network.wan.host}/${toString network.wan.prefixLength}"];
+        vlan = [mgmtIf svcIf];
+        address = [uplinkAddress];
         networkConfig = {
-          Gateway = network.wan.gateway;
+          Gateway = host.uplink.gateway;
           DNS = network.dns;
           IPv4Forwarding = true;
           IPv6Forwarding = false;
@@ -192,14 +168,14 @@ in {
         linkConfig.RequiredForOnline = "carrier";
       };
 
-      "30-vlan10" = {
-        matchConfig.Name = "vlan10";
-        address = ["${hostVlans.management.gateway}/${toString vlans.management.prefixLength}"];
+      "30-${mgmtIf}" = {
+        matchConfig.Name = mgmtIf;
+        address = ["${host.vlans.management.address}/${toString vlans.management.prefixLength}"];
         networkConfig.IPv4Forwarding = true;
       };
-      "30-vlan20" = {
-        matchConfig.Name = "vlan20";
-        address = ["${hostVlans.services.gateway}/${toString vlans.services.prefixLength}"];
+      "30-${svcIf}" = {
+        matchConfig.Name = svcIf;
+        address = ["${host.vlans.services.address}/${toString vlans.services.prefixLength}"];
         networkConfig.IPv4Forwarding = true;
       };
     };

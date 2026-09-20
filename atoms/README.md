@@ -1,10 +1,10 @@
 # atoms/ — 재사용 가능한 NixOS 모듈 조각
 
 하나의 관심사만 담당하는 최소 단위 NixOS 모듈입니다.
-`nodes/roles/*.nix`에서 조합되어 노드에 적용됩니다.
+`nodes/profiles/*.nix`와 `nodes/roles/*.nix`에서 조합되어 노드에 적용됩니다.
 
 ```nix
-# 사용 예: nodes/roles/common.nix
+# 사용 예: nodes/profiles/base.nix
 imports = [
   ../../atoms/system/nix.nix
   ../../atoms/network/ssh-server.nix
@@ -44,12 +44,12 @@ flowchart LR
     cilium["cni-cilium.nix"]
   end
 
-  Common["roles/common.nix"] --> nix & locale & tsync & shell & cli & keys & base & sshS
-  Host["roles/host.nix"] --> Common & sops & ts
-  KMaster["roles/k8s-master.nix"] --> Common & cri & kubelet & compat & cilium
-  KWorker["roles/k8s-worker.nix"] --> Common & cri & kubelet & compat
+  Base["profiles/base.nix"] --> nix & locale & tsync & shell & cli & keys & base & sshS
+  Host["physical/*.nix"] --> Base & sops & ts
+  KMaster["roles/k8s-master.nix"] --> Base & cri & kubelet & compat & cilium
+  KWorker["roles/k8s-worker.nix"] --> Base & cri & kubelet & compat
 
-  style Common fill:#dfd,stroke:#333
+  style Base fill:#dfd,stroke:#333
   style Host fill:#ffd,stroke:#333
   style KMaster fill:#ddf,stroke:#333
   style KWorker fill:#ddf,stroke:#333

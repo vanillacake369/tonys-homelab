@@ -4,8 +4,8 @@ NixOS + libvirt + Colmena 기반 선언적 홈랩 인프라.
 물리 서버 위에 libvirt QEMU/KVM으로 Kubernetes 클러스터를 운영합니다.
 
 ```bash
-CONFIRM_DEPLOY=homelab just apply infra all  # 물리호스트 -> VM 순서로 전체 배포
-just ssh k8s-master-1  # VM SSH 접속
+CONFIRM_DEPLOY=homelab just host apply homelab-1  # 물리 호스트 적용
+just vm ssh k8s-master-1  # VM SSH 접속
 just k8s deploy    # K8s 클러스터 부트스트랩/수렴
 ```
 
@@ -65,8 +65,8 @@ flowchart TB
 ```
 .
 ├── flake.nix                  # Nix Flake 진입점
-├── justfile                   # 운영 명령어 (plan/apply/manifest/ssh/k8s, ...)
-├── completions/               # zsh/fish completion for just
+├── justfile                   # 운영 명령어 (check/host/vm/k8s/gitops, ...)
+├── deploy/tools/completions/  # zsh/fish completion for just
 ├── network/
 │   └── topology.nix           # CIDR/VLAN/호스트/VM 네트워크 상수
 ├── lib/                       # Colmena hive + libvirt 빌드 헬퍼
@@ -118,61 +118,72 @@ Host 10.0.20.* k8s-master-* k8s-worker-*
 ```bash
 # 검증
 just check
-
-# manifest 생성/검증
-just manifest render tonys-gis
-just manifest check tonys-gis
-just manifest check-generated
+just nix check
 
 # 실제 적용 전 plan
-just plan gitops
-just plan infra host-all
-just plan infra vm k8s-master-1
+# GitOps plan은 CUE 기반 generated manifest를 갱신/검증하고 diff를 출력합니다.
+just gitops plan
+just host plan homelab-1
+just vm plan k8s-master-1
 
 # CI와 confirmation을 거친 적용
-CONFIRM_DEPLOY=homelab just apply gitops
-CONFIRM_DEPLOY=homelab just apply infra host homelab-1
-CONFIRM_DEPLOY=homelab just apply infra vm k8s-master-1
+CONFIRM_DEPLOY=homelab just gitops reconcile
+CONFIRM_DEPLOY=homelab just host apply homelab-1
+CONFIRM_DEPLOY=homelab just vm apply k8s-master-1
 ```
 
 ### Shell completion
 
 ```bash
-just install-completions
-CONFIRM_INSTALL_COMPLETIONS=homelab just install-completions  # 기존 just completion 덮어쓰기
+just setup completions
 ```
 
 ## Operations
 
 ```bash
 # SSH (LAN/Tailscale 자동 감지)
-just ssh homelab-1        # 물리 호스트
-just ssh k8s-master-1     # VM (ProxyJump 자동)
+just host ssh homelab-1   # 물리 호스트
+just vm ssh k8s-master-1  # VM (ProxyJump 자동)
+
+# 물리 호스트 lifecycle
+just host list
+just host verify homelab-1
+just host plan homelab-1
+CONFIRM_DEPLOY=homelab just host apply homelab-1
 
 # VM 관리
+just vm list
+just vm ssh k8s-master-1
+just vm plan k8s-master-1
+CONFIRM_DEPLOY=homelab just vm apply k8s-master-1
 just vm start k8s-master-1
 just vm stop all
 just vm status
 
 # 시스템 점검
 just k8s verify           # K8s 클러스터 상세 점검
-just status gitops        # GitOps 상태
+just k8s check            # 정적 Kubernetes manifest 검증
+just gitops status        # GitOps 상태
 
 # 로컬/CI 검증
 just check                # 전체 guardrail
-just check k8s            # kustomize + kubeconform + kube-linter + Kyverno
+just check generated      # CUE SSoT와 generated manifest 동기화 검사
+just check k8s            # kustomize + kubeconform + kube-linter + lightweight invariants
 just check nix            # deadnix + statix 리포트 + alejandra + flake check
 just check docs           # 문서의 just 명령어 정합성 검사
 
 # K8s 클러스터
 just k8s deploy           # bootstrap -> verify
 just k8s bootstrap        # 초기 부트스트랩
+just k8s join homelab-2      # 특정 k8s 노드만 kubeadm bootstrap/join
+just k8s join all            # 모든 k8s 노드 reconcile
+just k8s reconcile homelab-2 # manifest check -> targeted join -> verify
 CONFIRM_RESET=homelab just k8s clean        # 클러스터 리셋
 CONFIRM_RESET=homelab just k8s reset-deploy # reset -> bootstrap -> verify
 
 # 유지보수
-just gc                   # 전체 노드 가비지 컬렉션
-just gc host homelab-1    # 특정 host만
-just gc vm k8s-master-1   # 특정 VM만
-just update               # flake 업데이트
+just host gc homelab-1    # 특정 host만
+just vm gc k8s-master-1   # 특정 VM만
+just nix update           # flake 업데이트
+just nix gc vm k8s-master-1
 ```

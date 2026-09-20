@@ -18,6 +18,13 @@
   register: local_joined
   tags: [always]
 
+- name: "[State] Check kubelet client certificate status"
+  stat:
+    path: /var/lib/kubelet/pki/kubelet-client-current.pem
+    follow: true
+  register: kubelet_client_cert
+  tags: [always]
+
 - name: "[State] Detect network interface for kube-vip"
   shell: >-
     ip -o route get {{ api_vip }} |
@@ -48,6 +55,7 @@
       {{
         (reset_cluster | default(false) | bool) or
         (not local_joined.stat.exists) or
+        (inventory_hostname != groups['k8s_masters'][0] and not kubelet_client_cert.stat.exists) or
         (node_role == 'master' and inventory_hostname == groups['k8s_masters'][0] and global_api_health.status | default(0) != 200)
       }}
   tags: [always]

@@ -34,9 +34,10 @@
   tags: [ bootstrap ]
 
 - name: Add Cilium Helm repo
-  kubernetes.core.helm_repository:
-    name: cilium
-    repo_url: "https://helm.cilium.io/"
+  shell: |
+    set -euo pipefail
+    helm repo add cilium https://helm.cilium.io/ 2>/dev/null || helm repo update cilium
+  changed_when: false
   when: inventory_hostname == groups['k8s_masters'][0]
   tags: [ bootstrap ]
 

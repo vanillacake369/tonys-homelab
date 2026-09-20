@@ -21,7 +21,9 @@ secrets/*.decrypted.yaml
 secrets/*.tmp.yaml
 !**/secret.example.yaml
 !**/secrets.example.yaml
-secrets/*.pub
+# SSH public keys are declarative deploy inputs.
+!secrets/*.pub
+!secrets/**/*.pub
 secrets/ssh-public-key.txt
 secrets/vm-master.key
 kubeconfig

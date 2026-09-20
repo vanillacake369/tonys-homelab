@@ -1,6 +1,6 @@
 # Atom: SSH Authorized Keys
 # homelab 인프라 접근 공개키 선언
-# - 물리 호스트 및 모든 VM에 공통 적용 (common.nix 경유)
+# - 물리 호스트 및 모든 VM에 공통 적용 (nodes/profiles/base.nix 경유)
 # - 공개키이므로 암호화 불필요 (비공개키는 secrets/에서 sops-nix로 관리)
 {
   config,
@@ -16,12 +16,13 @@
     else [];
 
   infraKeys =
-    (readKey ../../secrets/limjihoon.pub)
-    ++ (readKey ../../secrets/homelab-1.pub);
+    (readKey ../../secrets/users/user-limjihoon-ed25519.pub)
+    ++ (readKey ../../secrets/hosts/host-homelab-1-ed25519.pub)
+    ++ (readKey ../../secrets/hosts/host-homelab-2-ed25519.pub);
 
   mobileHomelabKeys =
-    (readKey ../../secrets/ipad-homelab.pub)
-    ++ (readKey ../../secrets/iphone-homelab.pub);
+    (readKey ../../secrets/users/user-ipad-homelab-ed25519.pub)
+    ++ (readKey ../../secrets/users/user-iphone-homelab-ed25519.pub);
 in {
   users.users = lib.mkMerge [
     {

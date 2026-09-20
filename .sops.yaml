@@ -1,24 +1,27 @@
+---
 keys:
-  # 내 공개키
-  - &client age1q4lfv04ytr7d7s8g0l9pnpewpzhhw4fxlx7jn2txwr47tyjn8d3qnl0wa0
-  # 서버 공개키 (물리 호스트)
-  - &homelab age1c3jrdz0rddh5z7ldeahhuqwuvqvpqhy9ecl72ugsglvrzr58rurslufy58
-  # VM 공통 마스터 키
-  - &vm_master age12fpt4wmpf53pwjzl8j7gwnp2l0aap2804w5rryndxlqy69788cssahzv8n
-  # BookOrbit 전용 cluster 키 (flux 의 sops-age Secret 개인키와 쌍)
-  - &cluster age13fmn0qj888sxxfrkmdkxqnw0vfkvejt986rcr900pckm3zxuns8sylm3nw
+    # 내 공개키
+    - &client age1q4lfv04ytr7d7s8g0l9pnpewpzhhw4fxlx7jn2txwr47tyjn8d3qnl0wa0
+    # 서버 공개키 (물리 호스트)
+    - &homelab-1 age1c3jrdz0rddh5z7ldeahhuqwuvqvpqhy9ecl72ugsglvrzr58rurslufy58
+    - &homelab-2 age1mjr6qjlnf5pne789vtkm2xkxa089zgq0vexaj37td7sa6z6fys6qwqfhw5
+    # VM 공통 마스터 키
+    - &vm_master age12fpt4wmpf53pwjzl8j7gwnp2l0aap2804w5rryndxlqy69788cssahzv8n
+    # BookOrbit 전용 cluster 키 (flux 의 sops-age Secret 개인키와 쌍)
+    - &cluster age13fmn0qj888sxxfrkmdkxqnw0vfkvejt986rcr900pckm3zxuns8sylm3nw
 creation_rules:
-  # k8s/ 의 암호화 Secret — flux(cluster 키)가 복호화하고, 로컬 편집은 client 키로.
-  # data/stringData 값만 암호화해 metadata 는 kustomize/flux 가 읽을 수 있게 둔다.
-  - path_regex: k8s/.*\.enc\.yaml$
-    encrypted_regex: ^(data|stringData)$
-    key_groups:
-      - age:
-          - *cluster
-          - *client
-  - path_regex: secrets/[^/]+\.(yaml|json|env|ini)$
-    key_groups:
-      - age:
-          - *client
-          - *homelab
-          - *vm_master
+    # k8s/ 의 암호화 Secret — flux(cluster 키)가 복호화하고, 로컬 편집은 client 키로.
+    # data/stringData 값만 암호화해 metadata 는 kustomize/flux 가 읽을 수 있게 둔다.
+    - path_regex: k8s/.*\.enc\.yaml$
+      encrypted_regex: ^(data|stringData)$
+      key_groups:
+        - age:
+            - *cluster
+            - *client
+    - path_regex: secrets/[^/]+\.(yaml|json|env|ini)$
+      key_groups:
+        - age:
+            - *client
+            - *homelab-1
+            - *homelab-2
+            - *vm_master

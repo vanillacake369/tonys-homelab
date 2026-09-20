@@ -31,7 +31,7 @@ in {
     matchConfig.MACAddress = net.mac;
     address = ["${net.ip}/${toString vlan.prefixLength}"];
     networkConfig = {
-      Gateway = parent.vlans.${net.network}.gateway;
+      Gateway = parent.vlans.${net.network}.address;
       DNS = network.dns;
     };
     linkConfig.RequiredForOnline = "routable";

@@ -7,7 +7,7 @@
   isVM = builtins.hasAttr node topology.vms;
 
   hostInfo = {
-    ip = topology.hosts.${node}.ip;
+    ip = topology.hosts.${node}.uplink.ip;
     user = topology.hosts.${node}.user;
     type = "physical";
     parentIp = null;
@@ -25,7 +25,7 @@
     ip = vm.ip;
     user = "root";
     type = "vm";
-    parentIp = parent.ip;
+    parentIp = parent.uplink.ip;
     parentUser = parent.user;
   };
 in

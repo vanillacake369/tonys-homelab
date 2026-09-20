@@ -1,14 +1,7 @@
-# 네트워크 토폴로지 상수
-# - 이 homelab 의 물리/가상 네트워크 구조 선언
-# - 여러 노드가 공유하는 WAN, VLAN, K8s, Tailscale 상수
+# Shallow desired-fact log for this homelab.
+# Put facts here only when multiple consumers need the same source of truth.
+# Do not put derived names, module-local conventions, or full service config here.
 rec {
-  # WAN (물리 호스트 외부 네트워크)
-  wan = {
-    host = "192.168.45.82";
-    gateway = "192.168.45.1";
-    prefixLength = 24;
-  };
-
   dns = ["8.8.8.8" "1.1.1.1"];
 
   # VLAN 정의 (Layer 2 — 전체 네트워크 공유)
@@ -53,16 +46,35 @@ rec {
   };
 
   # 물리 호스트 메타데이터
-  # - ip: SSH 접근 IP (WAN)
+  # - role: 이 host 의 active fleet role
+  # - cluster: Kubernetes role 일 때 소속 cluster
   # - user: SSH 사용자
-  # - vlans: 호스트별 VLAN IP 할당 (gateway = 이 호스트의 VLAN 게이트웨이 IP)
+  # - uplink: physical upstream interface/network facts
+  # - vlans: 호스트별 VLAN interface address
   hosts = {
     homelab-1 = {
-      ip = "192.168.45.82";
+      role = "host";
       user = "limjihoon";
+      uplink = {
+        interface = "enp1s0";
+        ip = "192.168.45.82";
+        prefixLength = 24;
+        gateway = "192.168.45.1";
+      };
       vlans = {
-        management = {gateway = "10.0.10.1";};
-        services = {gateway = "10.0.20.1";};
+        management = {address = "10.0.10.1";};
+        services = {address = "10.0.20.1";};
+      };
+    };
+    homelab-2 = {
+      role = "k8s-worker";
+      cluster = "homelab";
+      user = "limjihoon";
+      uplink = {
+        interface = "wlp2s0";
+        ip = "192.168.45.83";
+        prefixLength = 24;
+        gateway = "192.168.45.1";
       };
     };
   };
@@ -106,12 +118,4 @@ rec {
       diskSize = 40;
     };
   };
-
-  vmsForHost = hostName:
-    builtins.listToAttrs (
-      map (name: {
-        inherit name;
-        value = vms.${name};
-      }) (builtins.filter (name: vms.${name}.parentHost == hostName) (builtins.attrNames vms))
-    );
 }

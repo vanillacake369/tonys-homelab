@@ -27,17 +27,13 @@
 ## 명령
 
 ```bash
-just manifest render tonys-gis
-just manifest render-all
-just manifest check tonys-gis
-just manifest check-all
-just manifest check-generated
-just manifest diff
-just manifest clean
+just gitops plan
 ```
 
-`manifest check`는 CUE concrete export, negative fixture, Kustomize build,
-kubeconform, deterministic re-render를 확인한다.
+GitOps plan은 CUE 기반 generated manifest를 갱신하고 diff를 출력한 뒤 로컬 guardrail을
+실행한다. CUE는 얕은 app values/schema/render 경계까지만 담당하고, admission policy는
+현재 active path에서 제외한다. Renderer 자체를 디버깅할 때는 justfile의 private manifest
+helper를 사용한다.
 
 ## 운영 주의
 

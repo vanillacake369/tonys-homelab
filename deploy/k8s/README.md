@@ -76,6 +76,9 @@ deploy/k8s/
 
 - 클러스터에 FluxCD가 부트스트랩되어 있어야 합니다
 - `GITHUB_TOKEN` 환경 변수 (repo 권한 필요)
+- SOPS 암호화 Secret을 사용하는 Kustomization은 `flux-system/sops-age`
+  bootstrap Secret이 먼저 필요합니다.
+  자세한 절차는 [docs/sops-bootstrap.md](docs/sops-bootstrap.md)를 따릅니다.
 
 ### 초기 부트스트랩
 
@@ -83,21 +86,34 @@ deploy/k8s/
 # GitHub Token 설정
 export GITHUB_TOKEN=ghp_xxxxx
 
-# FluxCD 부트스트랩 (justfile 레시피)
-CONFIRM_DEPLOY=homelab just bootstrap gitops flux <github-owner> <repo-name> <branch>
+# FluxCD 부트스트랩 (초기 설치/재난 복구 전용)
+printf '%s\n' "$GITHUB_TOKEN" | ssh -F .cache/ssh-config k8s-master-1 "read -r GITHUB_TOKEN; export GITHUB_TOKEN; flux bootstrap github \
+  --owner=github-owner \
+  --repository=repo-name \
+  --branch=branch-name \
+  --path=deploy/k8s/clusters/homelab \
+  --personal"
 
 # 예시
-CONFIRM_DEPLOY=homelab just bootstrap gitops flux vanillacake369 tonys-homelab main
+printf '%s\n' "$GITHUB_TOKEN" | ssh -F .cache/ssh-config k8s-master-1 "read -r GITHUB_TOKEN; export GITHUB_TOKEN; flux bootstrap github \
+  --owner=vanillacake369 \
+  --repository=tonys-homelab \
+  --branch=main \
+  --path=deploy/k8s/clusters/homelab \
+  --personal"
+
+# SOPS 복호화용 cluster age private key 주입
+just k8s bootstrap-sops-age
 ```
 
 ### 상태 확인
 
 ```bash
 # 전체 FluxCD 상태
-just status gitops
+just gitops status
 
-# 수동 reconcile 트리거
-CONFIRM_DEPLOY=homelab just reconcile gitops
+# plan 검증 후 수동 reconcile 트리거
+CONFIRM_DEPLOY=homelab just gitops reconcile
 
 # 클러스터에서 직접 확인
 ssh -F .cache/ssh-config k8s-master-1 "flux get all"
@@ -260,6 +276,6 @@ spec:
 
 | 레시피 | 설명 |
 |---|---|
-| `CONFIRM_DEPLOY=homelab just bootstrap gitops flux <owner> [repo] [branch]` | FluxCD 초기 설치 (GITHUB_TOKEN 필요) |
-| `just status gitops` | 전체 Flux 리소스 상태 조회 |
-| `CONFIRM_DEPLOY=homelab just reconcile gitops` | Git 소스 + Kustomization 수동 동기화 |
+| `just gitops status` | 전체 Flux 리소스 상태 조회 |
+| `just gitops plan` | generated manifest 갱신/검증 + 로컬 guardrail |
+| `CONFIRM_DEPLOY=homelab just gitops reconcile` | plan 통과 후 Git 소스 + Kustomization 수동 동기화 |

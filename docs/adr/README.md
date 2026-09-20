@@ -20,7 +20,7 @@
 | [0004](0004-networking-ingress-lb.md) | CNI, Gateway, LoadBalancer | Cilium Gateway API + LB-IPAM + L2 announcement |
 | [0005](0005-storage-strategy.md) | 스토리지 | local-path-provisioner 우선, Ceph 보류 |
 | [0006](0006-app-deployment-contract.md) | 앱 배포 contract | raw manifest 우선, CUE는 제한적 유지 |
-| [0007](0007-policy-strategy.md) | 정책/가드레일 | Kyverno 최소 enforcement + 로컬 검증 |
+| [0007](0007-policy-strategy.md) | 정책/가드레일 | 로컬 검증 + CUE shallow schema |
 | [0008](0008-cicd-and-image-delivery.md) | CI/CD와 이미지 배포 | 로컬 검증 + GitOps reconcile, 원격 CI 보류 |
 | [0009](0009-dns-ca-and-tls.md) | DNS, CA, TLS | Tailscale 우선, cert-manager/external-dns 보류 |
 

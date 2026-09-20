@@ -34,8 +34,8 @@
 | --- | --- | --- | --- |
 | SSH 경유 운영 점검 | `just`, `ssh`, `tailscale`, `jq`, `nix` | 직접 SSH config | `justfile`이 topology와 Tailscale peer를 합쳐 `.cache/ssh-config`를 만든다. |
 | 클러스터 상태 확인 | 원격 `kubectl`, 원격 `flux` | 로컬 kubeconfig | 로컬 context가 비어 있으면 원격 실행을 표준으로 둔다. |
-| manifest 검증 | `kustomize`, `kubeconform`, `kyverno`, `yq` | `kubectl apply --dry-run=server` | server-side dry-run은 클러스터 접근이 필요하다. |
-| `tonys-gis` 렌더링 | `cue`, `just manifest render`, `just manifest check` | 없음 | generated output은 직접 수정하지 않는다. |
+| manifest 검증 | `kustomize`, `kubeconform`, `kube-linter`, `yq` | `kubectl apply --dry-run=server` | server-side dry-run은 클러스터 접근이 필요하다. |
+| `tonys-gis` 렌더링 | `cue`, `just gitops plan` | 없음 | generated output은 직접 수정하지 않는다. |
 | 이미지 build/push | `podman` | `buildah` | Docker Desktop 제거 환경을 기본으로 둔다. |
 | registry digest 조회 | `crane digest` | `skopeo inspect docker://...`, `regctl image digest` | Docker 제거 환경에서는 `crane`을 우선한다. |
 | 외부 접근 확인 | `curl` | 브라우저 | Tailscale MagicDNS 경로를 확인한다. |
@@ -114,7 +114,7 @@ ssh -F .cache/ssh-config k8s-master-1 \
 ### 3. BookOrbit 확인
 
 ```bash
-just status gitops
+just gitops status
 
 ssh -F .cache/ssh-config k8s-master-1 \
   'flux get kustomization bookorbit -n flux-system'
@@ -169,8 +169,7 @@ namespace가 없거나 `generated-apps` Flux Kustomization이 없으면 producti
 깨진 상태다. intent 또는 renderer를 바꿨다면 다음 순서를 지킨다.
 
 ```bash
-just manifest check tonys-gis
-just manifest check-generated
+just gitops plan
 ```
 
 운영 전환 필수 조건:

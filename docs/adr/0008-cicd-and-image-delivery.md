@@ -19,7 +19,7 @@
 
 | 옵션 | 설명 | 장점 | 단점 |
 | --- | --- | --- | --- |
-| 로컬 only | `just check`, `just plan`, `just apply`를 사용자가 실행 | 통제감 최고, secret 노출면 작음 | 자동화 부족 |
+| 로컬 only | `just check`, `just host/vm/gitops plan`, `just host/vm/gitops apply/reconcile`을 사용자가 실행 | 통제감 최고, secret 노출면 작음 | 자동화 부족 |
 | GitHub Actions CI | PR/push에서 check 실행 | 회귀 방지 | secret, Nix cache, private repo 접근 관리 필요 |
 | GitHub Actions CD | push 후 deploy/reconcile 실행 | 자동 배포 | 홈랩 접근권한과 실패 복구 경로 복잡 |
 | 내부 runner | 홈랩 안에서 CI/CD 실행 | 네트워크 접근 쉬움 | runner 운영과 권한 관리 필요 |
@@ -33,15 +33,15 @@
 
 - 현재 병목은 자동화 부족이 아니라 구성 이해 부족이다.
 - 원격 CD는 홈랩 SSH, kubeconfig, registry credential을 CI에 위임해야 한다.
-- 단일 사용자 홈랩에서는 사용자가 `just plan` 결과를 보고 `CONFIRM_DEPLOY=homelab`로 적용하는 흐름이 더 안전하다.
+- 단일 사용자 홈랩에서는 사용자가 `just host plan`, `just vm plan`, `just gitops plan` 결과를 보고 `CONFIRM_DEPLOY=homelab`로 적용하는 흐름이 더 안전하다.
 - Flux는 cluster 내부에서 Git 상태를 수렴하므로, CI가 직접 cluster mutation을 수행하지 않아도 된다.
 - image digest pin은 자동화보다 먼저 지켜야 할 배포 contract다.
 
 ## 운영 명세
 
 - PR/commit 전 로컬에서 `just check`를 실행한다.
-- 인프라 변경은 `just plan infra ...` 후 `CONFIRM_DEPLOY=homelab just apply infra ...`로 적용한다.
-- GitOps 변경은 `just plan gitops` 후 `CONFIRM_DEPLOY=homelab just apply gitops`로 적용한다.
+- 인프라 변경은 `just host plan ...` 또는 `just vm plan ...` 후 `CONFIRM_DEPLOY=homelab just host apply ...` / `just vm apply ...`로 적용한다.
+- GitOps 변경은 `just gitops plan` 후 `CONFIRM_DEPLOY=homelab just gitops reconcile`로 적용한다.
 - 앱 이미지는 registry push 후 manifest의 digest를 갱신한다.
 - CI/CD가 cluster credential을 소유하지 않는다.
 

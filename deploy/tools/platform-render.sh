@@ -157,12 +157,24 @@ check_app() {
 }
 
 check_generated() {
-    local tmp
+    local tmp before restore_target
 
     tmp="$(mktemp -d)"
-    cp -R "$repo_root/deploy/k8s/generated" "$tmp/generated-before" 2>/dev/null || mkdir -p "$tmp/generated-before"
+    before="$tmp/generated-before"
+    restore_target="$repo_root/deploy/k8s/generated"
+
+    cp -R "$restore_target" "$before" 2>/dev/null || mkdir -p "$before"
+    restore_generated() {
+        rm -rf "$restore_target"
+        if [ -d "$before" ] && [ "$(find "$before" -mindepth 1 -print -quit)" ]; then
+            mkdir -p "$(dirname "$restore_target")"
+            cp -R "$before" "$restore_target"
+        fi
+    }
+    trap restore_generated RETURN
+
     render_all
-    diff -ru "$tmp/generated-before" "$repo_root/deploy/k8s/generated"
+    diff -ru "$before" "$restore_target"
 }
 
 diff_generated() {

@@ -95,9 +95,9 @@ Flux 루트에 연결되어 있다. 앱 수가 늘거나 개별 health/rollback 
 
 ## Argo adapter 판단
 
-Argo CD는 현재 운영 컨트롤러가 아니다. `deploy/gitops/argo`에는 AppProject와
-ApplicationSet 초안만 둔다. Argo pilot을 적용하려면 먼저 Flux ownership을
-suspend하거나 경로를 분리해야 한다.
+Argo CD는 현재 운영 컨트롤러가 아니다. 이전 AppProject/ApplicationSet 초안은 제거했고,
+Argo pilot을 적용하려면 먼저 Flux ownership을 suspend하거나 경로를 분리하는 ADR을 새로
+작성한다.
 
 ## Semantic difference
 
@@ -107,7 +107,8 @@ suspend하거나 경로를 분리해야 한다.
 - `generated-apps` Flux Kustomization이 `deploy/k8s/generated/apps` 경로를 적용한다.
 - YAML key order와 list formatting은 CUE export 기준으로 안정화된다.
 
-의도하지 않은 차이는 `just manifest diff`와 기존 manifest 비교로 제거한다.
+의도하지 않은 차이는 `just gitops plan`이 출력하는 generated manifest diff와 기존 manifest
+비교로 제거한다.
 
 ## Rollback
 

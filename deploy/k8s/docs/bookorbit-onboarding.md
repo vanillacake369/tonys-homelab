@@ -43,6 +43,25 @@
 
 비밀번호 변경이나 키 회전이 필요할 시 다음 절차를 따릅니다.
 
+### 클러스터 복호화 키
+
+BookOrbit의 `secret.enc.yaml`은 `.sops.yaml`의 client recipient와 cluster
+recipient로 암호화됩니다. 로컬 편집은 operator의 age key로 수행하고, Flux는
+클러스터의 `flux-system/sops-age` Secret에 들어 있는 cluster age private key로
+복호화합니다.
+
+`sops-age`는 GitOps가 스스로 만들 수 없는 bootstrap root secret이므로 Git에
+커밋하지 않습니다. 새 클러스터나 재난 복구 환경에서는 Flux bootstrap 이후
+다음 명령으로 주입합니다.
+
+```bash
+just k8s bootstrap-sops-age
+just k8s verify-sops-age
+```
+
+자세한 관리 계약과 복구 절차는 [sops-bootstrap.md](sops-bootstrap.md)를
+참고하세요.
+
 ### 로컬 환경 변수 설정
 복호화에 필요한 cluster 전용 age 개인키가 로컬 PC에 존재해야 합니다.
 ```bash
@@ -71,7 +90,7 @@ git commit -m "chore(bookorbit): rotate admin and alina passwords"
 git push
 
 # FluxCD 강제 동기화 트리거
-CONFIRM_DEPLOY=homelab just reconcile gitops
+CONFIRM_DEPLOY=homelab just gitops reconcile
 # (또는 특정 kustomization만 강제 동기화)
 ssh -F .cache/ssh-config k8s-master-1 "flux reconcile kustomization bookorbit -n flux-system --with-source"
 
@@ -87,7 +106,7 @@ ssh -F .cache/ssh-config k8s-master-1 "kubectl rollout restart deployment/bookor
 클러스터에 배포된 리소스들의 상태를 조회하려면 아래 `just` 레시피들을 사용합니다.
 ```bash
 # 전체 FluxCD 동기화 상태 요약 조회
-just status gitops
+just gitops status
 
 # 마스터 노드에 ssh 접속하여 kubectl 직접 조회
 ssh -F .cache/ssh-config k8s-master-1 "kubectl get pods -n bookorbit"

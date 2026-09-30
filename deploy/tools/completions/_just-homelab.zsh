@@ -1,5 +1,3 @@
-#compdef just
-
 _just_homelab_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }
@@ -52,12 +50,7 @@ _just_homelab_platform_apps() {
 _just_homelab() {
   local -a check_targets gitops_actions host_actions hosts k8s_actions manifest_actions nix_actions setup_actions vm_actions vms
 
-  if ! _just_homelab_is_repo; then
-    if (( $+functions[_clap_dynamic_completer_just] )); then
-      _clap_dynamic_completer_just "$@"
-    fi
-    return
-  fi
+  _just_homelab_is_repo || return 1
 
   check_targets=(all generated nix k8s yaml shell actions secrets docs hooks recipes)
   host_actions=(
@@ -235,9 +228,5 @@ _just_homelab() {
     ;;
   esac
 
-  if (( $+functions[_clap_dynamic_completer_just] )); then
-    _clap_dynamic_completer_just "$@"
-  fi
+  return 1
 }
-
-compdef _just_homelab just

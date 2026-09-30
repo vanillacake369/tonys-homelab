@@ -404,11 +404,17 @@ _install_completions:
         cp "$src" "$dest"
     }
 
-    mkdir -p "$HOME/.config/fish/completions" "$HOME/.zfunc"
-    install_completion deploy/tools/completions/just-homelab.fish "$HOME/.config/fish/completions/just.fish"
-    install_completion deploy/tools/completions/_just-homelab.zsh "$HOME/.zfunc/_just"
-    echo "Installed fish completion: $HOME/.config/fish/completions/just.fish"
-    echo "Installed zsh completion:  $HOME/.zfunc/_just"
+    mkdir -p "$HOME/.config/fish/completions" "$HOME/.config/fish/conf.d" "$HOME/.zfunc"
+    install_completion deploy/tools/completions/just-completion-path.fish "$HOME/.config/fish/conf.d/just-completion-path.fish"
+    install_completion deploy/tools/completions/just-dispatcher.fish "$HOME/.config/fish/completions/just.fish"
+    install_completion deploy/tools/completions/just-homelab.fish "$HOME/.config/fish/completions/just-tonys-homelab.fish"
+    install_completion deploy/tools/completions/_just-dispatcher.zsh "$HOME/.zfunc/_just"
+    install_completion deploy/tools/completions/_just-homelab.zsh "$HOME/.zfunc/_just_tonys_homelab"
+    echo "Installed fish path config: $HOME/.config/fish/conf.d/just-completion-path.fish"
+    echo "Installed fish dispatcher:  $HOME/.config/fish/completions/just.fish"
+    echo "Installed fish helper:     $HOME/.config/fish/completions/just-tonys-homelab.fish"
+    echo "Installed zsh dispatcher:  $HOME/.zfunc/_just"
+    echo "Installed zsh helper:      $HOME/.zfunc/_just_tonys_homelab"
     echo "Existing completion files are backed up automatically before overwrite."
     echo "The homelab-specific completion activates only inside this repository."
     echo 'For zsh, ensure this is in ~/.zshrc before compinit: fpath=("$HOME/.zfunc" $fpath)'
@@ -1360,7 +1366,44 @@ _check_recipe_contracts:
     }
 
     run zsh -n deploy/tools/completions/_just-homelab.zsh
+    run zsh -n deploy/tools/completions/_just-dispatcher.zsh
+    run fish -n deploy/tools/completions/just-completion-path.fish
     run fish -n deploy/tools/completions/just-homelab.fish
+    run fish -n deploy/tools/completions/just-dispatcher.fish
+
+    run fish -C 'source deploy/tools/completions/just-completion-path.fish' -c '
+        test "$fish_complete_path[1]" = "$HOME/.config/fish/completions"
+    '
+
+    run fish -c '
+        source deploy/tools/completions/just-dispatcher.fish
+        complete -C "just host " | string match -qr "^ssh\\t"
+    '
+
+    run zsh -fc '
+        autoload -Uz compinit
+        compinit -D
+        source deploy/tools/completions/_just-homelab.zsh
+        source deploy/tools/completions/_just-dispatcher.zsh
+        (( $+functions[_just] ))
+        _describe() {
+            local values_name="$4"
+            print -l -- "${(@P)values_name}"
+        }
+        words=(just host "")
+        CURRENT=3
+        _just | grep -q "^ssh:"
+    '
+
+    fake_bin="$(mktemp -d)"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "{\"Peer\":[{\"HostName\":\"homelab-2\",\"DNSName\":\"homelab-2.example.ts.net.\",\"TailscaleIPs\":[\"100.64.0.2\"],\"Online\":true}]}"' > "$fake_bin/tailscale"
+    printf '%s\n' '#!/usr/bin/env bash' 'test "${HOMELAB_TEST_LAN_REACHABLE:-}" = 1' > "$fake_bin/nc"
+    chmod +x "$fake_bin/tailscale" "$fake_bin/nc"
+    HOMELAB_TEST_LAN_REACHABLE=1 PATH="$fake_bin:$PATH" just --evaluate ssh-config >/dev/null
+    ssh -G -F .cache/ssh-config homelab-2 | grep -qx 'hostname 192.168.45.83'
+    HOMELAB_TEST_LAN_REACHABLE=0 PATH="$fake_bin:$PATH" just --evaluate ssh-config >/dev/null
+    ssh -G -F .cache/ssh-config homelab-2 | grep -qx 'hostname 100.64.0.2'
+    rm -rf "$fake_bin"
 
     summary="$(just --summary | tr ' ' '\n')"
     for recipe in check gitops host k8s manifest nix setup vm; do
@@ -1453,7 +1496,7 @@ _check_recipe_contracts:
 
     run just manifest check-generated
 
-    mkdir -p "$contract_home/.config/fish/completions" "$contract_home/.zfunc"
+    mkdir -p "$contract_home/.config/fish/completions" "$contract_home/.config/fish/conf.d" "$contract_home/.zfunc"
     printf 'foreign fish completion\n' > "$contract_home/.config/fish/completions/just.fish"
     printf 'foreign zsh completion\n' > "$contract_home/.zfunc/_just"
     run env HOME="$contract_home" just setup completions

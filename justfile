@@ -20,10 +20,25 @@ ssh-config := ```
     ts_data='{"Peer":[]}'
   fi
 
+  # Prefer a reachable LAN address. Fall back to an online Tailscale peer when
+  # the host's SSH port is not reachable directly from the current network.
+  reachable_lan_hosts='[]'
+  if command -v nc >/dev/null 2>&1; then
+    while IFS=$'\t' read -r host_name host_ip; do
+      if nc -z -w 1 "$host_ip" 22 >/dev/null 2>&1; then
+        reachable_lan_hosts=$(jq -c --arg host "$host_name" '. + [$host]' <<< "$reachable_lan_hosts")
+      fi
+    done < <(jq -r '.hosts | to_entries[] | [.key, .value.uplink.ip] | @tsv' <<< "$nix_data")
+  fi
+
   # 물리 호스트 및 VM 설정 생성
-  echo "$nix_data" | jq -r --argjson ts "$ts_data" '
+  echo "$nix_data" | jq -r --argjson ts "$ts_data" --argjson reachableLan "$reachable_lan_hosts" '
     (.hosts | to_entries[] as $host |
-      (($ts.Peer[]? | select(.HostName == $host.key or (.DNSName | startswith($host.key+"."))) | .TailscaleIPs[0]) // $host.value.uplink.ip) as $ip |
+      (if ($reachableLan | index($host.key)) != null then
+        $host.value.uplink.ip
+      else
+        (($ts.Peer[]? | select(.Online == true and (.HostName == $host.key or (.DNSName | startswith($host.key+".")))) | .TailscaleIPs[0]) // $host.value.uplink.ip)
+      end) as $ip |
       "Host \($host.key)\n    HostName \($ip)\n    User \($host.value.user)\n    StrictHostKeyChecking no\n"),
     (.vms | to_entries[] as $vm |
       "Host \($vm.key) \($vm.value.ip)\n    HostName \($vm.value.ip)\n    User root\n    ProxyJump \($vm.value.parentHost)\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n")

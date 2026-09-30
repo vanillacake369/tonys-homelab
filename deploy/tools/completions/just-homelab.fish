@@ -36,6 +36,11 @@ function __just_homelab_recipes
     printf '%s\t%s\n' vm 'manage libvirt VMs'
 end
 
+function __just_homelab_platform_apps
+    set -l root (__just_homelab_root)
+    command find "$root/deploy/platform/apps" -maxdepth 1 -type f -name '*.cue' 2>/dev/null | sed 's#^.*/##; s#\.cue$##'
+end
+
 function __just_homelab_check_targets
     printf '%s\t%s\n' all 'run every local guardrail'
     printf '%s\t%s\n' generated 'check CUE generated manifests are current'
@@ -228,7 +233,6 @@ function __just_homelab_setup_action_position
     and test (count $tokens) -eq 2
 end
 
-complete -c just -e
 complete -c just -f -n '__just_homelab_is_repo; and test (count (commandline -opc)) -eq 1' -a '(__just_homelab_recipes)'
 complete -c just -f -n '__just_homelab_is_repo; and __just_homelab_topology_names_position host' -a '(__just_homelab_topology_names hosts)'
 complete -c just -f -n '__just_homelab_is_repo; and __just_homelab_topology_names_position vm' -a '(__just_homelab_topology_names vms)'
